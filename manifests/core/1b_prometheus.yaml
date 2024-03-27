@@ -25,25 +25,24 @@ data:
 
     scrape_configs:
 
-    - job_name: kubelet
-      scheme: https
-      tls_config:
-        ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
-        insecure_skip_verify: true
-      bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
-
-      kubernetes_sd_configs:
-      - role: node
-
-      relabel_configs:
-      - action: labelmap
-        regex: __meta_kubernetes_node_label_(.+)
-      - target_label: __address__
-        replacement: kubernetes.default.svc:443
-      - source_labels: [__meta_kubernetes_node_name]
-        regex: (.+)
-        target_label: __metrics_path__
-        replacement: /api/v1/nodes/${1}/proxy/metrics
+    #- job_name: kubelet
+    #  scheme: https
+    #  tls_config:
+    #    ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+    #    insecure_skip_verify: true
+    #  bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+    #  kubernetes_sd_configs:
+    #  - role: node
+    #  relabel_configs:
+    #  - action: replace
+    #    source_labels: [__meta_kubernetes_node_label_kubernetes_io_hostname]
+    #    target_label: kubernetes_io_hostname
+    #  - target_label: __address__
+    #    replacement: kubernetes.default.svc:443
+    #  - source_labels: [__meta_kubernetes_node_name]
+    #    regex: (.+)
+    #    target_label: __metrics_path__
+    #    replacement: /api/v1/nodes/${1}/proxy/metrics
 
     - job_name: kube-state-metrics
       honor_timestamps: true
@@ -51,10 +50,6 @@ data:
       kubernetes_sd_configs:
       - role: service
       relabel_configs:
-      - separator: ;
-        regex: __meta_kubernetes_service_label_(.+)
-        replacement: $1
-        action: labelmap
       - source_labels: [__meta_kubernetes_service_label_app]
         separator: ;
         regex: kube-state-metrics
@@ -78,8 +73,11 @@ data:
       - role: node
 
       relabel_configs:
-      - action: labelmap
-        regex: __meta_kubernetes_node_label_(.+)
+      #- action: labelmap
+      #  regex: __meta_kubernetes_node_label_(.+)
+      - action: replace
+        source_labels: [__meta_kubernetes_node_label_kubernetes_io_hostname]
+        target_label: kubernetes_io_hostname
       - target_label: __address__
         replacement: kubernetes.default.svc:443
       - source_labels: [__meta_kubernetes_node_name]
