@@ -1,0 +1,126 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: parca
+  namespace: core
+data:
+  # TODO(bwplotka): Add config reloader, otherwise pod has to manually be deleted.
+  parca.yaml: |-
+    "object_storage":
+      "bucket":
+        "config":
+          "directory": "/var/lib/parca"
+        "type": "FILESYSTEM"
+    scrape_configs:
+      - job_name: prometheus
+        scrape_interval: 30s
+        scrape_timeout: 40s
+        scheme: http
+        
+        kubernetes_sd_configs:
+          - role: pod
+              
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+          insecure_skip_verify: true
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+            
+        relabel_configs:
+          - action: keep
+            source_labels: [__meta_kubernetes_pod_label_app]
+            regex: prometheus
+          - source_labels: [__meta_kubernetes_pod_label_prometheus]
+            target_label: prometheus
+          - source_labels: [__meta_kubernetes_pod_label_benchmark]
+            target_label: benchmark
+          - source_labels: [ __address__ ]
+            target_label: instance
+          - action: keep
+            source_labels: [ __meta_kubernetes_pod_label_app ]
+            regex: managed-prometheus-collector|prometheus
+#          - source_labels: [__profile_path__]
+#            target_label: __init_profile_path
+#          - source_labels: [__meta_kubernetes_service_label_app, __init_profile_path]
+#            regex: prometheus-meta;(.*)
+#            replacement: /prometheus-meta$1
+#            target_label: __profile_path__
+#          - source_labels: [prometheus, pr_number, __init_profile_path]
+#            regex: test-.*;(.*);(.*)
+#            replacement: /$1/prometheus-release$2
+#            target_label: __profile_path__
+#          - source_labels: [prometheus, pr_number, __init_profile_path]
+#            regex: test-pr-.*;(.*);(.*)
+#            replacement: /$1/prometheus-pr$2
+#            target_label: __profile_path__
+#          - regex: __init_profile_path
+#            action: labeldrop
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: parca
+  namespace: core
+  labels:
+    app: parca
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: parca
+  template:
+    metadata:
+      labels:
+        app: parca
+    spec:
+      serviceAccountName: parca
+      securityContext:
+        fsGroup: 65534
+        runAsUser: 65534
+      containers:
+      - image: ghcr.io/parca-dev/parca:v0.20.0
+        args:
+          - /parca
+          - "--http-address=:7070"
+          - "--config-path=/etc/parca/parca.yaml"
+          - "--path-prefix=/profiles"
+          - "--log-level=info"
+          - "--cors-allowed-origins=*"
+          - "--debuginfod-upstream-servers=https://debuginfod.systemtap.org"
+          - "--debuginfod-http-request-timeout=5m"
+        name: parca
+        terminationMessagePolicy: FallbackToLogsOnError
+        volumeMounts:
+        - mountPath: /etc/parca
+          name: config
+        - mountPath: /var/lib/parca
+          name: storage
+        ports:
+        - name: parca-web
+          containerPort: 7070
+      volumes:
+      - name: config
+        configMap:
+          name: parca
+      # TODO(bwplotka): Make it persistent at some point.
+      - name: storage
+        emptyDir: {}
+      terminationGracePeriodSeconds: 120
+      nodeSelector:
+        role: core
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: parca
+  namespace: core
+  labels:
+    app: parca
+spec:
+  type: NodePort
+  ports:
+  - name: parca-web
+    port: 80
+    targetPort: parca-web
+  selector:
+    app: parca
