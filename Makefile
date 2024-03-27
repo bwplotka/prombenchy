@@ -33,9 +33,8 @@ stop: check-deps ## Start benchmark on the current cluster.
 .PHONY: cluster-setup
 cluster-setup: check-deps ## Bootstraps the benchmarking GKE cluster.
 	@echo "## Starting/checking cluster"
-	bash ./scripts/cluster-create.sh $(CLUSTER_NAME)
-	@echo "## Installing core resources"
-	kubectl apply -f ./manifests/core/
+	bash ./scripts/cluster-setup.sh $(CLUSTER_NAME)
+
 
 .PHONY: cluster-destoy
 cluster-destroy: check-deps ## Tear down the benchmarking GKE cluster.

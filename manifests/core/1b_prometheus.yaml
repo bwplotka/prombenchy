@@ -86,6 +86,12 @@ data:
         regex: (.+)
         target_label: __metrics_path__
         replacement: /api/v1/nodes/${1}/proxy/metrics/cadvisor
+      metric_relabel_configs:
+      - action: replace
+        source_labels: [kubernetes_io_hostname]
+        regex: -(\w-work-pool)-\w+\-\w+$
+        target_label: benchmark
+        replacement: $1
 
     - job_name: pods
       tls_config:
@@ -113,7 +119,7 @@ data:
         source_labels: [__meta_kubernetes_pod_node_name]
         target_label: node_name
       - action: replace
-        source_labels: [__meta_kubernetes_pod_container_name;__address__]
+        source_labels: [__meta_kubernetes_pod_container_name,__address__]
         target_label: instance
         regex: (.*);http://[\d\.]+:(\d)
         replacement: $1:$2
@@ -146,6 +152,7 @@ spec:
         prometheus: meta
     spec:
       serviceAccountName: prometheus
+      automountServiceAccountToken: true
       securityContext:
         runAsUser: 0
       initContainers:
@@ -163,7 +170,7 @@ spec:
           privileged: false
       containers:
       - name: config-reloader
-        image: gke.gcr.io/prometheus-engine/config-reloader:v0.8.1-gke.6
+        image: gke.gcr.io/prometheus-engine/config-reloader:v0.9.0-gke.1
         args:
         - --config-file=/prometheus/config/config.yaml
         - --config-file-output=/prometheus/config_out/config.yaml
@@ -172,7 +179,7 @@ spec:
         - --listen-address=:19091
         ports:
         - name: reloader-ins
-          containerPort: 8080
+          containerPort: 19091
         resources:
           limits:
             memory: 50Mi
@@ -191,7 +198,6 @@ spec:
         - --storage.tsdb.retention.size=500GB  # 50% of the total storage available.
         - --web.enable-lifecycle
         - --storage.tsdb.no-lockfile
-        #- "--web.external-url=http://{{ .DOMAIN_NAME }}/prometheus-meta"
         name: prometheus
         volumeMounts:
         - name: config-out
