@@ -52,7 +52,7 @@ spec:
         - --ready-url=http://127.0.0.1:19090/-/ready
         - --listen-address=:19091
         ports:
-        - name: cfg-rel-metrics
+        - name: cfg-rel-ins
           containerPort: 19091
         env:
         - name: NODE_NAME
@@ -103,7 +103,7 @@ spec:
         # JSON log format is needed for GKE to display log levels correctly.
         - --log.format=json
         ports:
-        - name: prom-metrics
+        - name: prom-ins
           containerPort: 19090
         # The environment variable EXTRA_ARGS will be populated by the operator.
         # DO NOT specify it here.

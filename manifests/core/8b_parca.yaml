@@ -96,7 +96,7 @@ spec:
         - mountPath: /var/lib/parca
           name: storage
         ports:
-        - name: parca-web
+        - name: parca-web-ins
           containerPort: 7070
       volumes:
       - name: config
@@ -121,6 +121,6 @@ spec:
   ports:
   - name: parca-web
     port: 80
-    targetPort: parca-web
+    targetPort: parca-web-ins
   selector:
     app: parca

@@ -55,7 +55,7 @@ data:
         regex: __meta_kubernetes_service_label_(.+)
         replacement: $1
         action: labelmap
-      - source_labels: [__meta_kubernetes_service_label_k8s_app]
+      - source_labels: [__meta_kubernetes_service_label_app]
         separator: ;
         regex: kube-state-metrics
         replacement: $1
@@ -112,12 +112,21 @@ data:
       - action: replace
         source_labels: [__meta_kubernetes_pod_node_name]
         target_label: node_name
-      - source_labels: [__meta_kubernetes_pod_label_benchmark]
+      - action: replace
+        source_labels: [__meta_kubernetes_pod_container_name;__address__]
+        target_label: instance
+        regex: (.*);http://[\d\.]+:(\d)
+        replacement: $1:$2
+      - source_labels: [__meta_kubernetes_pod_container_port_name]
+        regex: .*-ins$
+        action: keep
+      - action: replace
+        source_labels: [__meta_kubernetes_pod_label_benchmark]
         target_label: benchmark
 
 ---
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: prometheus
   namespace: core
@@ -162,7 +171,7 @@ spec:
         - --ready-url=http://localhost:9090/-/ready
         - --listen-address=:19091
         ports:
-        - name: reloader-web
+        - name: reloader-ins
           containerPort: 8080
         resources:
           limits:
@@ -194,7 +203,7 @@ spec:
           mountPath: /data
           subPath: prometheus-data
         ports:
-        - name: prom-web
+        - name: prom-web-ins
           containerPort: 9090
       volumes:
       - name: config
@@ -226,7 +235,7 @@ spec:
   ports:
   - name: prom-web
     port: 80
-    targetPort: prom-web
+    targetPort: prom-web-ins
   selector:
     app: prometheus
     prometheus: meta

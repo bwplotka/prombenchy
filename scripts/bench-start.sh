@@ -35,15 +35,21 @@ fi
 trap "exit 1"           HUP INT PIPE QUIT TERM
 trap 'rm -r "$EXPANDED_SCENARIO"'  EXIT
 
-echo "## Creating node pool ${BENCH_NAME}-work-pool"
-# n2-highmem-8 -- 8 vCPUs 64 GB
-gcloud container node-pools create ${BENCH_NAME}-work-pool \
-  --project=${PROJECT_ID} \
-  --location=${ZONE} \
-  --cluster=${CLUSTER_NAME} \
-  --max-pods-per-node=200 \
-  --machine-type=n2-highmem-8 \
-  --labels="role=${BENCH_NAME}-work" \
-  --num-nodes=1
+if gcloud container node-pools list --cluster="${CLUSTER_NAME}" --zone=${ZONE} 2>&1 | grep -q "^${BENCH_NAME}-work-pool "
+then
+  echo "WARN: node pool ${BENCH_NAME}-work-pool already exists, skipping creation"
+else
+  echo "## Creating node pool ${BENCH_NAME}-work-pool"
+  # n2-highmem-8 -- 8 vCPUs 64 GB
+  gcloud container node-pools create ${BENCH_NAME}-work-pool \
+    --project=${PROJECT_ID} \
+    --location=${ZONE} \
+    --cluster=${CLUSTER_NAME} \
+    --max-pods-per-node=200 \
+    --machine-type=n2-highmem-8 \
+    --labels="role=${BENCH_NAME}-work" \
+    --num-nodes=1
+fi
 
+echo "## Applying scenario resources"
 kubectl apply -f "${EXPANDED_SCENARIO}"
