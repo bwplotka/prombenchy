@@ -4,7 +4,10 @@ export SHELLOPTS	# propagate set to children by default
 
 IFS=$'\t\n'
 
-. ./scripts/expand.sh
+. ./scripts/util.sh
+
+ZONE="us-central1-a"
+PROJECT_ID=$(gcloud config get project)
 
 BENCH_NAME=$1
 if [ -z "${BENCH_NAME}" ]; then
@@ -22,19 +25,6 @@ if [ -z "${CLUSTER_NAME}" ]; then
 fi
 
 echo "## Assuming ${CLUSTER_NAME}"
-
-ZONE="us-central1-a"
-PROJECT_ID=$(gcloud config get project)
-
-EXPANDED_SCENARIO=$(expand_scenario ${BENCH_NAME} ${SCENARIO})
-if [ ! -e "$EXPANDED_SCENARIO" ]; then
-    >&2 echo "Failed to expand scenario"
-    exit 1
-fi
-# Make sure the temp directory gets removed on script exit.
-trap "exit 1"           HUP INT PIPE QUIT TERM
-trap 'rm -r "$EXPANDED_SCENARIO"'  EXIT
-
 if gcloud container node-pools list --cluster="${CLUSTER_NAME}" --zone=${ZONE} 2>&1 | grep -q "^${BENCH_NAME}-work-pool "
 then
   echo "WARN: node pool ${BENCH_NAME}-work-pool already exists, skipping creation"
@@ -52,4 +42,8 @@ else
 fi
 
 echo "## Applying scenario resources"
-kubectl apply -f "${EXPANDED_SCENARIO}"
+# All scenarios has the same load and requires GMP operator. Make it more flexible
+# if needed later on.
+#kubectlExpandApply "./manifests/gmp-operator" #?
+kubectlExpandApply "./manifests/load/avalanche.yaml"
+kubectlExpandApply "${SCENARIO}"

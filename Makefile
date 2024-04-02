@@ -1,7 +1,7 @@
 include .bingo/Variables.mk
 
 CLUSTER_NAME?=bwplotka-prombenchy
-SCENARIO="./manifests/scenarios/gmp-high-load-node"
+SCENARIO="./manifests/scenarios/gmp-agent"
 
 .PHONY: help
 help: ## Display this help and any documented user-facing targets. Other undocumented targets may be present in the Makefile.

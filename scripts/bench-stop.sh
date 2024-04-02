@@ -4,7 +4,10 @@ export SHELLOPTS	# propagate set to children by default
 
 IFS=$'\t\n'
 
-. ./scripts/expand.sh
+. ./scripts/util.sh
+
+ZONE="us-central1-a"
+PROJECT_ID=$(gcloud config get project)
 
 BENCH_NAME=$1
 if [ -z "${BENCH_NAME}" ]; then
@@ -23,19 +26,11 @@ fi
 
 echo "## Assuming ${CLUSTER_NAME}"
 
-ZONE="us-central1-a"
-PROJECT_ID=$(gcloud config get project)
-
-EXPANDED_SCENARIO=$(expand_scenario ${BENCH_NAME} ${SCENARIO})
-if [ ! -e "$EXPANDED_SCENARIO" ]; then
-    >&2 echo "Failed to expand scenario"
-    exit 1
-fi
-# Make sure the temp directory gets removed on script exit.
-trap "exit 1"           HUP INT PIPE QUIT TERM
-trap 'rm -r "$EXPANDED_SCENARIO"'  EXIT
-
-kubectl delete -f "${EXPANDED_SCENARIO}"
+# All scenarios has the same load and requires GMP operator. Make it more flexible
+# if needed later on.
+kubectlExpandDelete "./manifests/gmp-operator"
+kubectlExpandDelete "./manifests/load/avalanche.yaml"
+kubectlExpandDelete "${SCENARIO}"
 
 # n2-highmem-8 -- 8 vCPUs 64 GB
 gcloud container node-pools delete ${BENCH_NAME}-work-pool
