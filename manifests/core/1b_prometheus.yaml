@@ -117,10 +117,8 @@ data:
         source_labels: [__meta_kubernetes_pod_node_name]
         target_label: node_name
       - action: replace
-        source_labels: [__meta_kubernetes_pod_container_name,__address__]
-        target_label: instance
-        regex: (.*);http://[\d\.]+:(\d)
-        replacement: $1:$2
+        source_labels: [__meta_kubernetes_pod_container_name]
+        target_label: container
       - source_labels: [__meta_kubernetes_pod_container_port_name]
         regex: .*-ins$
         action: keep

@@ -45,7 +45,7 @@ metadata:
   name: collector
   namespace: gmp-system
   labels:
-    prometheus: "gmp-agent"
+    prometheus: "gmp-noexport"
     benchmark: {{ .Env.BENCH_NAME }}
 spec:
   selector:
@@ -59,7 +59,7 @@ spec:
         app: managed-prometheus-collector
         app.kubernetes.io/name: collector
         app.kubernetes.io/version: 0.11.0
-        prometheus: "gmp-agent"
+        prometheus: "gmp-noexport"
         benchmark: {{ .Env.BENCH_NAME }}
       annotations:
         # The emptyDir for the storage and config directories prevents cluster
@@ -124,16 +124,23 @@ spec:
         args:
         - --config.file=/prometheus/config_out/config.yaml
         - --enable-feature=exemplar-storage
-        - --enable-feature=agent
         # Special Google flag for authorization using native Kubernetes secrets.
         - --enable-feature=google-kubernetes-secret-provider
-        - --storage.agent.path=/prometheus/data
-        - --storage.agent.no-lockfile
-        - --storage.agent.retention.max-time=30m
-        - --storage.agent.wal-compression
+        - --storage.tsdb.path=/prometheus/data
+        - --storage.tsdb.no-lockfile
+        # Keep 30 minutes of data. As we are backed by an emptyDir volume, this will count towards
+        # the containers memory usage. We could lower it further if this becomes problematic, but
+        # it the window for local data is quite convenient for debugging.
+        - --storage.tsdb.retention.time=30m
+        - --storage.tsdb.wal-compression
+        # Effectively disable compaction and make blocks short enough so that our retention window
+        # can be kept in practice.
+        - --storage.tsdb.min-block-duration=10m
+        - --storage.tsdb.max-block-duration=10m
         - --web.listen-address=:19090
         - --web.enable-lifecycle
         - --web.route-prefix=/
+        - --export.disable
         - --export.user-agent-mode=kubectl
         # JSON log format is needed for GKE to display log levels correctly.
         - --log.format=json

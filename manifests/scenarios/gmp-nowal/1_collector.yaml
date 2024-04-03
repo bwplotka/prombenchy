@@ -45,7 +45,7 @@ metadata:
   name: collector
   namespace: gmp-system
   labels:
-    prometheus: "v2.45.3-gmp.1-gke.0"
+    prometheus: "gmp-nowal"
     benchmark: {{ .Env.BENCH_NAME }}
 spec:
   selector:
@@ -59,7 +59,7 @@ spec:
         app: managed-prometheus-collector
         app.kubernetes.io/name: collector
         app.kubernetes.io/version: 0.11.0
-        prometheus: "v2.45.3-gmp.1-gke.0"
+        prometheus: "gmp-nowal"
         benchmark: {{ .Env.BENCH_NAME }}
       annotations:
         # The emptyDir for the storage and config directories prevents cluster
