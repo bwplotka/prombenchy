@@ -1,0 +1,384 @@
+{
+  "displayName": "[prombenchy] Collector",
+  "mosaicLayout": {
+    "columns": 48,
+    "tiles": [
+      {
+        "width": 24,
+        "height": 13,
+        "widget": {
+          "title": "Collector samples per sec scraped (should be 10.6k)",
+          "xyChart": {
+            "dataSets": [
+              {
+                "timeSeriesQuery": {
+                  "prometheusQuery": "rate(prometheus_tsdb_head_samples_appended_total{cluster=\"bwplotka-prombenchy\", job=~\".*collector.*\"}[5m])",
+                  "unitOverride": "",
+                  "outputFullDuration": false
+                },
+                "plotType": "LINE",
+                "legendTemplate": "",
+                "targetAxis": "Y1",
+                "dimensions": [],
+                "measures": [],
+                "breakdowns": []
+              },
+              {
+                "timeSeriesQuery": {
+                  "prometheusQuery": "rate(prometheus_agent_samples_appended_total{cluster=\"bwplotka-prombenchy\", job=~\".*collector.*\"}[5m])  ",
+                  "unitOverride": "",
+                  "outputFullDuration": false
+                },
+                "plotType": "LINE",
+                "legendTemplate": "",
+                "targetAxis": "Y1",
+                "dimensions": [],
+                "measures": [],
+                "breakdowns": []
+              }
+            ],
+            "thresholds": [],
+            "yAxis": {
+              "label": "",
+              "scale": "LINEAR"
+            },
+            "chartOptions": {
+              "mode": "COLOR",
+              "showLegend": false,
+              "displayHorizontal": false
+            }
+          },
+          "visualElementId": 0,
+          "id": ""
+        }
+      },
+      {
+        "xPos": 24,
+        "width": 24,
+        "height": 13,
+        "widget": {
+          "title": "Collector Memory (working set and heap)",
+          "xyChart": {
+            "dataSets": [
+              {
+                "timeSeriesQuery": {
+                  "prometheusQuery": "container_memory_working_set_bytes{cluster=\"bwplotka-prombenchy\", container=\"prometheus\", pod=~\"collector-.*\"}",
+                  "unitOverride": "",
+                  "outputFullDuration": false
+                },
+                "plotType": "LINE",
+                "legendTemplate": "",
+                "targetAxis": "Y1",
+                "dimensions": [],
+                "measures": [],
+                "breakdowns": []
+              },
+              {
+                "timeSeriesQuery": {
+                  "prometheusQuery": "go_memstats_heap_alloc_bytes{cluster=\"bwplotka-prombenchy\",container=\"prometheus\", job=~\".*collector\"}\n\n",
+                  "unitOverride": "",
+                  "outputFullDuration": false
+                },
+                "plotType": "LINE",
+                "legendTemplate": "",
+                "targetAxis": "Y1",
+                "dimensions": [],
+                "measures": [],
+                "breakdowns": []
+              }
+            ],
+            "thresholds": [],
+            "yAxis": {
+              "label": "",
+              "scale": "LINEAR"
+            },
+            "chartOptions": {
+              "mode": "COLOR",
+              "showLegend": false,
+              "displayHorizontal": false
+            }
+          },
+          "visualElementId": 0,
+          "id": ""
+        }
+      },
+      {
+        "yPos": 13,
+        "width": 24,
+        "height": 12,
+        "widget": {
+          "title": "Collector Active Series (should be 160k)",
+          "xyChart": {
+            "dataSets": [
+              {
+                "timeSeriesQuery": {
+                  "prometheusQuery": "prometheus_tsdb_head_series{cluster=\"bwplotka-prombenchy\", job=\"managed-prometheus-collector\"}",
+                  "unitOverride": "",
+                  "outputFullDuration": false
+                },
+                "plotType": "LINE",
+                "legendTemplate": "",
+                "targetAxis": "Y1",
+                "dimensions": [],
+                "measures": [],
+                "breakdowns": []
+              },
+              {
+                "timeSeriesQuery": {
+                  "prometheusQuery": "prometheus_agent_active_series{cluster=\"bwplotka-prombenchy\", job=\"managed-prometheus-collector\"}",
+                  "unitOverride": "",
+                  "outputFullDuration": false
+                },
+                "plotType": "LINE",
+                "legendTemplate": "",
+                "targetAxis": "Y1",
+                "dimensions": [],
+                "measures": [],
+                "breakdowns": []
+              }
+            ],
+            "thresholds": [],
+            "yAxis": {
+              "label": "",
+              "scale": "LINEAR"
+            },
+            "chartOptions": {
+              "mode": "COLOR",
+              "showLegend": false,
+              "displayHorizontal": false
+            }
+          },
+          "visualElementId": 0,
+          "id": ""
+        }
+      },
+      {
+        "xPos": 24,
+        "yPos": 13,
+        "width": 24,
+        "height": 12,
+        "widget": {
+          "title": "Collector CPU Use",
+          "xyChart": {
+            "dataSets": [
+              {
+                "timeSeriesQuery": {
+                  "prometheusQuery": "rate(process_cpu_seconds_total{cluster=\"bwplotka-prombenchy\", container=\"prometheus\", job=\"managed-prometheus-collector\"}[${__interval}])",
+                  "unitOverride": "",
+                  "outputFullDuration": false
+                },
+                "plotType": "LINE",
+                "legendTemplate": "",
+                "targetAxis": "Y1",
+                "dimensions": [],
+                "measures": [],
+                "breakdowns": []
+              }
+            ],
+            "thresholds": [],
+            "yAxis": {
+              "label": "",
+              "scale": "LINEAR"
+            },
+            "chartOptions": {
+              "mode": "COLOR",
+              "showLegend": false,
+              "displayHorizontal": false
+            }
+          },
+          "visualElementId": 0,
+          "id": ""
+        }
+      },
+      {
+        "yPos": 25,
+        "width": 24,
+        "height": 10,
+        "widget": {
+          "title": "GCM Ingested series for one metric (should be 160)",
+          "xyChart": {
+            "dataSets": [
+              {
+                "timeSeriesQuery": {
+                  "prometheusQuery": "count(avalanche_metric_mmmmm_0_0{cluster=\"bwplotka-prombenchy\"})",
+                  "unitOverride": "",
+                  "outputFullDuration": false
+                },
+                "plotType": "LINE",
+                "legendTemplate": "",
+                "targetAxis": "Y1",
+                "dimensions": [],
+                "measures": [],
+                "breakdowns": []
+              }
+            ],
+            "thresholds": [],
+            "yAxis": {
+              "label": "",
+              "scale": "LINEAR"
+            },
+            "chartOptions": {
+              "mode": "COLOR",
+              "showLegend": false,
+              "displayHorizontal": false
+            }
+          },
+          "visualElementId": 0,
+          "id": ""
+        }
+      },
+      {
+        "xPos": 24,
+        "yPos": 25,
+        "width": 24,
+        "height": 10,
+        "widget": {
+          "title": "Collector containers uptime",
+          "xyChart": {
+            "dataSets": [
+              {
+                "timeSeriesQuery": {
+                  "prometheusQuery": "#sum(time() - container_start_time_seconds{cluster=\"bwplotka-prombenchy\", pod=~\"collector.*\", container!=\"\"}) by (container)\n\nkube_pod_container_status_restarts",
+                  "unitOverride": "",
+                  "outputFullDuration": false
+                },
+                "plotType": "LINE",
+                "legendTemplate": "",
+                "targetAxis": "Y1",
+                "dimensions": [],
+                "measures": [],
+                "breakdowns": []
+              }
+            ],
+            "thresholds": [],
+            "yAxis": {
+              "label": "",
+              "scale": "LINEAR"
+            },
+            "chartOptions": {
+              "mode": "COLOR",
+              "showLegend": false,
+              "displayHorizontal": false
+            }
+          },
+          "visualElementId": 0,
+          "id": ""
+        }
+      },
+      {
+        "xPos": 24,
+        "yPos": 35,
+        "width": 24,
+        "height": 13,
+        "widget": {
+          "title": "Samples scraped by collector per all scrapes (only visible if collector sends data to GCM)",
+          "xyChart": {
+            "dataSets": [
+              {
+                "timeSeriesQuery": {
+                  "prometheusQuery": "sum(scrape_samples_scraped{cluster=\"bwplotka-prombenchy\", namespace=\"test1\"}) by (namespace, job)",
+                  "unitOverride": "",
+                  "outputFullDuration": false
+                },
+                "plotType": "LINE",
+                "legendTemplate": "",
+                "targetAxis": "Y1",
+                "dimensions": [],
+                "measures": [],
+                "breakdowns": []
+              }
+            ],
+            "thresholds": [],
+            "yAxis": {
+              "label": "",
+              "scale": "LINEAR"
+            },
+            "chartOptions": {
+              "mode": "COLOR",
+              "showLegend": false,
+              "displayHorizontal": false
+            }
+          },
+          "visualElementId": 0,
+          "id": ""
+        }
+      },
+      {
+        "yPos": 35,
+        "width": 24,
+        "height": 13,
+        "widget": {
+          "title": "Collector memory mapped file bytes",
+          "xyChart": {
+            "dataSets": [
+              {
+                "timeSeriesQuery": {
+                  "prometheusQuery": "container_memory_mapped_file{cluster=\"bwplotka-prombenchy\", image=~\".*prometheus.*\", pod=~\"collector.*\"}",
+                  "unitOverride": "",
+                  "outputFullDuration": false
+                },
+                "plotType": "LINE",
+                "legendTemplate": "",
+                "targetAxis": "Y1",
+                "dimensions": [],
+                "measures": [],
+                "breakdowns": []
+              }
+            ],
+            "thresholds": [],
+            "yAxis": {
+              "label": "",
+              "scale": "LINEAR"
+            },
+            "chartOptions": {
+              "mode": "COLOR",
+              "showLegend": false,
+              "displayHorizontal": false
+            }
+          },
+          "visualElementId": 0,
+          "id": ""
+        }
+      },
+      {
+        "yPos": 48,
+        "width": 24,
+        "height": 13,
+        "widget": {
+          "title": "Collector replay time",
+          "xyChart": {
+            "dataSets": [
+              {
+                "timeSeriesQuery": {
+                  "prometheusQuery": "prometheus_tsdb_data_replay_duration_seconds{cluster=\"bwplotka-prombenchy\",container=\"prometheus\", job=~\".*collector\"}\n\n",
+                  "unitOverride": "",
+                  "outputFullDuration": false
+                },
+                "plotType": "LINE",
+                "legendTemplate": "",
+                "targetAxis": "Y1",
+                "dimensions": [],
+                "measures": [],
+                "breakdowns": []
+              }
+            ],
+            "thresholds": [],
+            "yAxis": {
+              "label": "",
+              "scale": "LINEAR"
+            },
+            "chartOptions": {
+              "mode": "COLOR",
+              "showLegend": false,
+              "displayHorizontal": false
+            }
+          },
+          "visualElementId": 0,
+          "id": ""
+        }
+      }
+    ]
+  },
+  "dashboardFilters": [],
+  "labels": {}
+}

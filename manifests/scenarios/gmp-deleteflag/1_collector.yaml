@@ -120,14 +120,20 @@ spec:
             - all
           privileged: false
       - name: prometheus
-        image: gcr.io/gpe-test-1/prometheus:v2.45.3-gmp.data-rem-option3
+        image: gcr.io/gpe-test-1/prometheus:v2.45.3-gmp.4-gke.0-v2
         args:
         - --config.file=/prometheus/config_out/config.yaml
         - --enable-feature=exemplar-storage
         # Special Google flag for authorization using native Kubernetes secrets.
         - --enable-feature=google-kubernetes-secret-provider
         - --storage.tsdb.path=/prometheus/data
-        - --storage.tsdb.delete-on-start # Forceful deletion of all data on restart.
+        # Special Google flag for force deleting all data on start. We use ephemeral storage in
+        # this manifest, but there are cases were container restart still reuses, potentially
+        # bad data (corrupted, with high cardinality causing OOMs or slow startups).
+        # Force deleting, so container restart is consistent with pod restart.
+        # NOTE: Data is likely already sent GCM, plus GCM export does not use that
+        # data on disk (WAL).
+        - --gmp.storage.delete-data-on-start
         - --storage.tsdb.no-lockfile
         # Keep 30 minutes of data. As we are backed by an emptyDir volume, this will count towards
         # the containers memory usage. We could lower it further if this becomes problematic, but
