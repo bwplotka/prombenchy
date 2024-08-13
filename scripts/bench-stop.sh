@@ -18,19 +18,22 @@ if [ -z "${SCENARIO}" ]; then
     echo "scenario dir is required as the first parameter!"
 fi
 
-CLUSTER_NAME=$(kubectl config current-context | rev | cut -d_ -f1 | rev)
+CLUSTER_NAME=$3
 if [ -z "${CLUSTER_NAME}" ]; then
-    >&2 echo "Failed to fetch cluster name"
+    echo "cluster name is required as the third parameter!"
     exit 1
 fi
 
 echo "## Assuming ${CLUSTER_NAME}"
+gcloud container clusters get-credentials ${CLUSTER_NAME} --zone ${ZONE} --project ${PROJECT_ID}
 
-# All scenarios has the same load and requires GMP operator. Make it more flexible
+# n2-highmem-8 -- 8 vCPUs 64 GB
+gcloud container node-pools delete --async --cluster ${CLUSTER_NAME} --zone ${ZONE} ${BENCH_NAME}-work-pool
+
+# TODO(bwplotka): All scenarios has the same load and requires GMP operator. Make it more flexible
 # if needed later on.
-kubectlExpandDelete "./manifests/gmp-operator"
+#kubectlExpandApply "./manifests/gmp-operator"
 kubectlExpandDelete "./manifests/load/avalanche.yaml"
 kubectlExpandDelete "${SCENARIO}"
 
-# n2-highmem-8 -- 8 vCPUs 64 GB
-gcloud container node-pools delete ${BENCH_NAME}-work-pool
+
