@@ -42,6 +42,7 @@ else
     --max-pods-per-node=200 \
     --machine-type=n2-highmem-8 \
     --labels="role=${BENCH_NAME}-work" \
+    --node-labels="role=${BENCH_NAME}-work" \
     --num-nodes=1
 fi
 
