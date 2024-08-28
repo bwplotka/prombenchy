@@ -120,8 +120,7 @@ spec:
             - all
           privileged: false
       - name: prometheus
-        # v2.45.3-gmp.8-rc.0
-        image: gke.gcr.io/prometheus-engine/prometheus:sha256:3e6493d4b01ab583382731491d980bc164873ad4969e92c0bdd0da278359ccac
+        image: gke.gcr.io/prometheus-engine/prometheus:v2.45.3-gmp.7-gke.0
         args:
         - --config.file=/prometheus/config_out/config.yaml
         - --enable-feature=exemplar-storage

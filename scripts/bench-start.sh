@@ -7,7 +7,7 @@ IFS=$'\t\n'
 . ./scripts/util.sh
 
 ZONE="us-central1-a"
-PROJECT_ID=$(gcloud config get project)
+export PROJECT_ID=$(gcloud config get project)
 
 BENCH_NAME=$1
 if [ -z "${BENCH_NAME}" ]; then
@@ -50,6 +50,6 @@ echo "## Applying scenario resources"
 
 # TODO(bwplotka): All scenarios has the same load and requires GMP operator. Make it more flexible
 # if needed later on.
-#kubectlExpandApply "./manifests/gmp-operator"
+kubectlExpandApply "./manifests/gmp-operator"
 kubectlExpandApply "./manifests/load/avalanche.yaml"
 kubectlExpandApply "${SCENARIO}"
