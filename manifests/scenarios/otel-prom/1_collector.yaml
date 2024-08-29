@@ -52,7 +52,6 @@ metadata:
   name: collector
   namespace: otel-prom
   labels:
-    prometheus: "gmp"
     benchmark: {{ .Env.BENCH_NAME }}
 spec:
   selector:
@@ -66,32 +65,20 @@ spec:
         app: managed-prometheus-collector-otel
         app.kubernetes.io/name: collector
         app.kubernetes.io/version: 0.11.0
-        prometheus: "gmp"
         benchmark: {{ .Env.BENCH_NAME }}
       annotations:
         # The emptyDir for the storage and config directories prevents cluster
         # autoscaling unless this annotation is set.
         cluster-autoscaler.kubernetes.io/safe-to-evict: "true"
-        components.gke.io/component-name: managed_prometheus
     spec:
       serviceAccountName: collector
       automountServiceAccountToken: true
-      priorityClassName: gmp-critical
       containers:
       - name: otel-prom
         image: otel/opentelemetry-collector-contrib:0.105.0
         command:
           - "/otelcol-contrib"
           - "--config=/conf/collector.yaml"
-        ports:
-        - name: otlp-grpc
-          containerPort: 4317
-          protocol: TCP
-        - name: otlp-http
-          containerPort: 4318
-          protocol: TCP
-        # The environment variable EXTRA_ARGS will be populated by the operator.
-        # DO NOT specify it here.
         env:
           - name: MY_POD_IP
             valueFrom:
@@ -161,10 +148,10 @@ data:
       health_check:
         endpoint: ${env:MY_POD_IP}:13133
     processors:
-      resource:
+      resource/self-metrics:
         attributes:
         - key: "cluster"
-          value: "otel-bench"
+          value: {{ .Env.BENCH_NAME }}
           action: upsert
         - key: "namespace"
           value: "otel-prom"
@@ -203,13 +190,14 @@ data:
       prometheus/bench:
         config:
           scrape_configs:
-          - job_name: 'otel-prom-bench'
+          - job_name: otel-prom-bench
+            scrape_interval: 15s
             kubernetes_sd_configs:
             - role: pod
             relabel_configs:
-            - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
+            - source_labels: [__meta_kubernetes_pod_label_app]
               action: keep
-              regex: prom-example
+              regex: avalanche
             - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
               action: replace
               target_label: __metrics_path__
@@ -238,7 +226,6 @@ data:
           exporters:
           - googlemanagedprometheus
           processors:
-          - resource
           - resourcedetection
           - batch
           - transform/collision
@@ -248,13 +235,11 @@ data:
           exporters:
           - googlemanagedprometheus
           processors:
-          - resource
+          - resource/self-metrics
           - resourcedetection
           - batch
           receivers:
           - prometheus/self-metrics
       telemetry:
-        logs:
-          level: debug
         metrics:
           address: ${env:MY_POD_IP}:8888

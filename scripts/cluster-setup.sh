@@ -92,6 +92,11 @@ gcloud iam service-accounts add-iam-policy-binding ${SA}@${PROJECT_ID}.iam.gserv
     --member "serviceAccount:${PROJECT_ID}.svc.id.goog[otel-prom/collector]" \
     --project ${PROJECT_ID}
 
+gcloud iam service-accounts add-iam-policy-binding ${SA}@${PROJECT_ID}.iam.gserviceaccount.com \
+    --role roles/iam.workloadIdentityUser \
+    --member "serviceAccount:${PROJECT_ID}.svc.id.goog[otel-bench/collector]" \
+    --project ${PROJECT_ID}
+
 echo "## Installing core resources"
 PROJECT_ID=${PROJECT_ID} ${GOMPLATE} --input-dir=./manifests/core --output-dir="${TEMP_DIR}"
 kubectl apply -f "${TEMP_DIR}"
