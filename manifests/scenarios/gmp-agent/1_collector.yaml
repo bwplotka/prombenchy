@@ -214,3 +214,19 @@ spec:
           type: RuntimeDefault
       nodeSelector:
         role: {{ .Env.BENCH_NAME }}-work
+---
+apiVersion: monitoring.googleapis.com/v1
+kind: PodMonitoring
+metadata:
+  name: avalanche
+  namespace: {{ .Env.BENCH_NAME }}
+  labels:
+    app: avalanche
+spec:
+  endpoints:
+  - port: metrics
+    interval: 15s
+    path: /metrics
+  selector:
+    matchLabels:
+      app: avalanche
