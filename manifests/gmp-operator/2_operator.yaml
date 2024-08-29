@@ -41,6 +41,8 @@ kind: ServiceAccount
 metadata:
   name: operator
   namespace: gmp-system
+  annotations:
+    iam.gke.io/gcp-service-account: gmp-prombench@{{ .Env.PROJECT_ID }}.iam.gserviceaccount.com
 ---
 # Source: prometheus-engine/templates/role.yaml
 apiVersion: rbac.authorization.k8s.io/v1
