@@ -1,0 +1,245 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: otel-prom
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: collector
+  namespace: otel-prom
+  annotations:
+    iam.gke.io/gcp-service-account: gmp-prombench@{{ .Env.PROJECT_ID }}.iam.gserviceaccount.com
+---
+# Source: prometheus-engine/templates/role.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: otel-prom:collector
+rules:
+- resources:
+  - endpoints
+  - nodes
+  - nodes/metrics
+  - pods
+  - services
+  apiGroups: [""]
+  verbs: ["get", "list", "watch"]
+- resources:
+  - configmaps
+  apiGroups: [""]
+  verbs: ["get"]
+- nonResourceURLs: ["/metrics"]
+  verbs: ["get"]
+---
+# Source: prometheus-engine/templates/rolebinding.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: otel-prom:collector
+roleRef:
+  name: otel-prom:collector
+  kind: ClusterRole
+  apiGroup: rbac.authorization.k8s.io
+subjects:
+- name: collector
+  namespace: otel-prom
+  kind: ServiceAccount
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: collector
+  namespace: otel-prom
+  labels:
+    benchmark: {{ .Env.BENCH_NAME }}
+spec:
+  selector:
+    matchLabels:
+      # DO NOT MODIFY - label selectors are immutable by the Kubernetes API.
+      # see: https://kubernetes.io/docs/concepts/workloads/controllers/daemonset/#pod-selector.
+      app.kubernetes.io/name: collector
+  template:
+    metadata:
+      labels:
+        app: managed-prometheus-collector-otel
+        app.kubernetes.io/name: collector
+        app.kubernetes.io/version: 0.11.0
+        benchmark: {{ .Env.BENCH_NAME }}
+      annotations:
+        # The emptyDir for the storage and config directories prevents cluster
+        # autoscaling unless this annotation is set.
+        cluster-autoscaler.kubernetes.io/safe-to-evict: "true"
+    spec:
+      serviceAccountName: collector
+      automountServiceAccountToken: true
+      containers:
+      - name: otel-prom
+        image: otel/opentelemetry-collector-contrib:0.105.0
+        command:
+          - "/otelcol-contrib"
+          - "--config=/conf/collector.yaml"
+        env:
+          - name: MY_POD_IP
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: status.podIP
+        volumeMounts:
+        - name: collector-config
+          mountPath: /conf
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 13133
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - all
+          privileged: false
+      volumes:
+      - name: collector-config
+        configMap:
+          name: collector-config
+          items:
+          - key: collector.yaml
+            path: collector.yaml
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: kubernetes.io/arch
+                operator: In
+                values:
+                - arm64
+                - amd64
+              - key: kubernetes.io/os
+                operator: In
+                values:
+                - linux
+      tolerations:
+      - effect: NoExecute
+        operator: Exists
+      - effect: NoSchedule
+        operator: Exists
+      securityContext:
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      nodeSelector:
+        role: {{ .Env.BENCH_NAME }}-work
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  creationTimestamp: null
+  name: collector-config
+  namespace: otel-prom
+data:
+  collector.yaml: |
+    exporters:
+      googlemanagedprometheus:
+
+    extensions:
+      health_check:
+        endpoint: ${env:MY_POD_IP}:13133
+    processors:
+      resource/self-metrics:
+        attributes:
+        - key: "cluster"
+          value: {{ .Env.BENCH_NAME }}
+          action: upsert
+        - key: "namespace"
+          value: "otel-prom"
+          action: upsert
+        - key: "location"
+          value: "us-central1-a"
+          action: upsert
+
+      batch:
+        send_batch_max_size: 200
+        send_batch_size: 200
+        timeout: 5s
+
+      resourcedetection:
+        detectors: [gcp]
+        timeout: 10s
+
+      transform/collision:
+        metric_statements:
+        - context: datapoint
+          statements:
+          - set(attributes["exported_location"], attributes["location"])
+          - delete_key(attributes, "location")
+          - set(attributes["exported_cluster"], attributes["cluster"])
+          - delete_key(attributes, "cluster")
+          - set(attributes["exported_namespace"], attributes["namespace"])
+          - delete_key(attributes, "namespace")
+          - set(attributes["exported_job"], attributes["job"])
+          - delete_key(attributes, "job")
+          - set(attributes["exported_instance"], attributes["instance"])
+          - delete_key(attributes, "instance")
+          - set(attributes["exported_project_id"], attributes["project_id"])
+          - delete_key(attributes, "project_id")
+
+    receivers:
+      prometheus/bench:
+        config:
+          scrape_configs:
+          - job_name: otel-prom-bench
+            scrape_interval: 15s
+            kubernetes_sd_configs:
+            - role: pod
+            relabel_configs:
+            - source_labels: [__meta_kubernetes_pod_label_app]
+              action: keep
+              regex: avalanche
+            - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+              action: replace
+              target_label: __metrics_path__
+              regex: (.+)
+            - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+              action: replace
+              regex: (.+):(?:\d+);(\d+)
+              replacement: $$1:$$2
+              target_label: __address__
+            - action: labelmap
+              regex: __meta_kubernetes_pod_label_(.+)
+
+      prometheus/self-metrics:
+        config:
+          scrape_configs:
+          - job_name: otel-self-metrics
+            scrape_interval: 1m
+            static_configs:
+            - targets:
+              - ${env:MY_POD_IP}:8888
+    service:
+      extensions:
+      - health_check
+      pipelines:
+        metrics:
+          exporters:
+          - googlemanagedprometheus
+          processors:
+          - resourcedetection
+          - batch
+          - transform/collision
+          receivers:
+          - prometheus/bench
+        metrics/self-metrics:
+          exporters:
+          - googlemanagedprometheus
+          processors:
+          - resource/self-metrics
+          - resourcedetection
+          - batch
+          receivers:
+          - prometheus/self-metrics
+      telemetry:
+        metrics:
+          address: ${env:MY_POD_IP}:8888

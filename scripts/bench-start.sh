@@ -50,6 +50,6 @@ echo "## Applying scenario resources"
 
 # TODO(bwplotka): All scenarios has the same load and requires GMP operator. Make it more flexible
 # if needed later on.
-kubectlExpandApply "./manifests/gmp-operator"
+# kubectlExpandApply "./manifests/gmp-operator"
 kubectlExpandApply "./manifests/load/avalanche.yaml"
 kubectlExpandApply "${SCENARIO}"
