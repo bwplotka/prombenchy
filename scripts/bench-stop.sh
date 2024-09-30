@@ -27,13 +27,17 @@ fi
 echo "## Assuming ${CLUSTER_NAME}"
 gcloud container clusters get-credentials ${CLUSTER_NAME} --zone ${ZONE} --project ${PROJECT_ID}
 
+export BENCH_NAME
+export PROJECT_ID
+export ZONE
+export CLUSTER_NAME
+
+kubectlExpandDelete "./manifests/load/avalanche.yaml"
+kubectlExpandDelete "${SCENARIO}"
+
 # n2-highmem-8 -- 8 vCPUs 64 GB
 gcloud container node-pools delete --async --cluster ${CLUSTER_NAME} --zone ${ZONE} ${BENCH_NAME}-work-pool
 
-# TODO(bwplotka): All scenarios has the same load and requires GMP operator. Make it more flexible
-# if needed later on.
-#kubectlExpandApply "./manifests/gmp-operator"
-kubectlExpandDelete "./manifests/load/avalanche.yaml"
-kubectlExpandDelete "${SCENARIO}"
+
 
 

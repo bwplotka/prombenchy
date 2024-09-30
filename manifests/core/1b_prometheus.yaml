@@ -103,16 +103,13 @@ data:
       relabel_configs:
       - action: keep
         source_labels: [__meta_kubernetes_pod_label_app]
-        regex: parca|prometheus|managed-prometheus-collector
+        regex: parca|prometheus|collector
       - action: replace
         source_labels: [__meta_kubernetes_pod_label_app]
         target_label: job
       - action: replace
         source_labels: [__meta_kubernetes_namespace]
         target_label: namespace
-      - action: replace
-        source_labels: [__meta_kubernetes_pod_label_prometheus]
-        target_label: prometheus
       - action: replace
         source_labels: [__meta_kubernetes_pod_node_name]
         target_label: node_name
@@ -134,18 +131,18 @@ metadata:
   namespace: core
   labels:
     app: prometheus
-    prometheus: meta
+    collector: meta
 spec:
   replicas: 1
   selector:
     matchLabels:
       app: prometheus
-      prometheus: meta
+      collector: meta
   template:
     metadata:
       labels:
         app: prometheus
-        prometheus: meta
+        collector: meta
     spec:
       serviceAccountName: prometheus
       automountServiceAccountToken: true
@@ -205,7 +202,7 @@ spec:
           mountPath: /data
           subPath: prometheus-data
         ports:
-        - name: prom-web-ins
+        - name: prom-web-ins # -ins, tells core Prometheus to scrape it.
           containerPort: 9090
       volumes:
       - name: config
@@ -230,7 +227,7 @@ metadata:
   name: prometheus
   namespace: core
   labels:
-    prometheus: meta
+    collector: meta
     app: prometheus
 spec:
   type: NodePort
@@ -240,4 +237,4 @@ spec:
     targetPort: prom-web-ins
   selector:
     app: prometheus
-    prometheus: meta
+    collector: meta
