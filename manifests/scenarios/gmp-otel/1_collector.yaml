@@ -189,6 +189,9 @@ data:
       #          - delete_key(attributes, "project_id")
 
     receivers:
+      # NOTE(bwplotka): Mimicking scrape config of GMP operator, to ensure
+      # we have the same labels on the output with the same relabel processing.
+      # Related issue: https://github.com/bwplotka/prombenchy/issues/13
       prometheus/bench:
         config:
           scrape_configs:

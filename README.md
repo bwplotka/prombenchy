@@ -18,7 +18,7 @@ You can start as many scenarios as you want on the single cluster (make sure to 
 
 The scenario is a path to the "collector" manifest, so anything that will scrape `./manifests/load/avalanche.exampletarget.yaml`. Feel free to adjust anything in `./manifests/scenarios/` or add your own.
 
-This setup uses separate Prometheus for gathering metrics about core resources and collectors (available locally and in GCM). Make sure your pod has `app=collector` label and relevant port name has `-ins` suffix, sto be scraped by this core Prometheus. There is also a dashboard you can apply to GCM in `./dashboards/`. 
+This setup uses separate Prometheus for gathering metrics about core resources and collectors (available locally and in GCM). Make sure your pod has `app=collector` label and relevant port name has `-ins` suffix, to be scraped by this core Prometheus. There is also a dashboard you can apply to GCM in `./dashboards/`. 
 
 * `make stop CLUSTER_NAME=my-prombenchy BENCH_NAME=<name of benchmark, also k8s namespace> SCENARIO=./manifests/scenarios/gmp` kill the node-pool and experiment.
 

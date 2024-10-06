@@ -41,3 +41,23 @@ cluster-destroy: check-deps ## Tear down the benchmarking GKE cluster.
 .PHONY: lint
 lint: ## Lint resources.
 	bash ./scripts/shellcheck.sh
+
+GOMODS := $(shell find . -name "go.mod" | grep -v .bingo | xargs dirname)
+.PHONY: test
+test:
+	@for gomod in $(GOMODS); do \
+		cd $$gomod && go test -v ./...; \
+    done
+
+GOFUMPT = gofumpt
+$(GOFUMPT):
+	@go install mvdan.cc/gofumpt@latest
+
+GO_FILES = $(shell find . -path ./vendor -prune -o -name '*.go' -print)
+
+.PHONY: format
+format: $(GOFUMPT) $(GOIMPORTS)
+	@echo ">> formating imports"
+	@$(GOIMPORTS) -w $(GO_FILES)
+	@echo ">> gofumpt-ing the code; golangci-lint requires this"
+	@$(GOFUMPT) -extra -w $(GO_FILES)

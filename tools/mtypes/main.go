@@ -1,6 +1,8 @@
+// Package main implements mtypes CLI, see README for details.
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -47,7 +49,7 @@ func main() {
 			// Open the input file.
 			file, err := os.Open(*resource)
 			if err != nil {
-				log.Fatalf("Error opening file: %v", err)
+				log.Fatalf("Error opening file: %v", err) //nolint:gocritic
 			}
 			defer file.Close()
 			input = file
@@ -67,40 +69,47 @@ func main() {
 	writeStatistics(os.Stdout, total, statistics)
 
 	if *avalancheFlagsForTotal > 0 {
+		// adjustedGoal is tracking the # of adjusted series we want to generate with avalanche.
 		adjustedGoal := float64(*avalancheFlagsForTotal)
 		fmt.Println()
 		fmt.Println("Avalanche flags for the similar distribution to get to the adjusted series goal of:", adjustedGoal)
 
-		adjustedGoal = adjustedGoal / 10.0 // Assuming --series-count=10
+		adjustedGoal /= 10.0 // Assuming --series-count=10
+		// adjustedSum is tracking the total sum of series so far (at the end hopefully adjustedSum ~= adjustedGoal)
 		adjustedSum := 0
 		for _, mtype := range allTypes {
 			s := statistics[mtype]
+
+			// adjustedSeriesRatio is tracking the ratio of this type in the input file.
+			// We try to get similar ratio, but with different absolute counts, given the total sum of series we are aiming for.
 			adjustedSeriesRatio := float64(s.adjustedSeries) / float64(total.adjustedSeries)
 
-			adjustedSeries := int(adjustedGoal * adjustedSeriesRatio)
+			// adjustedSeriesForType is tracking (per metric type), how many unique series of that
+			// metric type avalanche needs to create according to the ratio we got from our input.
+			adjustedSeriesForType := int(adjustedGoal * adjustedSeriesRatio)
 
 			switch mtype {
 			case dto.MetricType_GAUGE:
-				fmt.Printf("--gauge-metric-count=%v\n", adjustedSeries)
-				adjustedSum += adjustedSeries
+				fmt.Printf("--gauge-metric-count=%v\n", adjustedSeriesForType)
+				adjustedSum += adjustedSeriesForType
 			case dto.MetricType_COUNTER:
-				fmt.Printf("--counter-metric-count=%v\n", adjustedSeries)
-				adjustedSum += adjustedSeries
+				fmt.Printf("--counter-metric-count=%v\n", adjustedSeriesForType)
+				adjustedSum += adjustedSeriesForType
 			case dto.MetricType_HISTOGRAM:
 				avgBkts := s.buckets / s.series
-				adjustedSeries /= 2 + avgBkts
-				fmt.Printf("--histogram-metric-count=%v\n", adjustedSeries)
+				adjustedSeriesForType /= 2 + avgBkts
+				fmt.Printf("--histogram-metric-count=%v\n", adjustedSeriesForType)
 				fmt.Printf("--histogram-metric-bucket-count=%v\n", avgBkts-1) // -1 is due to caveat of additional +Inf not added by avalanche.
-				adjustedSum += adjustedSeries * (2 + avgBkts)
+				adjustedSum += adjustedSeriesForType * (2 + avgBkts)
 			case metricType_NATIVE_HISTOGRAM:
-				fmt.Printf("--native-histogram-metric-count=%v\n", adjustedSeries)
-				adjustedSum += adjustedSeries
+				fmt.Printf("--native-histogram-metric-count=%v\n", adjustedSeriesForType)
+				adjustedSum += adjustedSeriesForType
 			case dto.MetricType_SUMMARY:
 				avgObjs := s.objectives / s.series
-				adjustedSeries /= 2 + avgObjs
-				fmt.Printf("--summary-metric-count=%v\n", adjustedSeries)
+				adjustedSeriesForType /= 2 + avgObjs
+				fmt.Printf("--summary-metric-count=%v\n", adjustedSeriesForType)
 				fmt.Printf("--summary-metric-objective-count=%v\n", avgObjs)
-				adjustedSum += adjustedSeries * (2 + avgObjs)
+				adjustedSum += adjustedSeriesForType * (2 + avgObjs)
 			default:
 				if s.series > 0 {
 					log.Fatalf("not supported %v metric in avalanche", mtype)
@@ -114,7 +123,6 @@ func main() {
 
 		fmt.Println("This should give the total adjusted series to:", adjustedSum*10)
 	}
-
 }
 
 var allTypes = []dto.MetricType{dto.MetricType_GAUGE, dto.MetricType_COUNTER, dto.MetricType_HISTOGRAM, metricType_NATIVE_HISTOGRAM, dto.MetricType_GAUGE_HISTOGRAM, dto.MetricType_SUMMARY, dto.MetricType_UNTYPED}
@@ -159,7 +167,7 @@ func calculateTargetStatistics(r io.Reader) (statistics map[dto.MetricType]stats
 	for {
 		var mf dto.MetricFamily
 		if err := parser.Decode(&mf); err != nil {
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				break
 			}
 			return nil, fmt.Errorf("parsing %w", err)
