@@ -46,10 +46,19 @@ else
     --num-nodes=1
 fi
 
+# Performing steps for workload identity https://cloud.google.com/kubernetes-engine/docs/how-to/workload-identity#authenticating_to and https://cloud.google.com/stackdriver/docs/managed-prometheus/setup-unmanaged#gmp-wli-svcacct
+gcloud iam service-accounts add-iam-policy-binding \
+  --role roles/iam.workloadIdentityUser \
+  --member "serviceAccount:${PROJECT_ID}.svc.id.goog[${BENCH_NAME}/collector]" \
+  gmp-prombench@${PROJECT_ID}.iam.gserviceaccount.com \
+  --quiet
+
 echo "## Applying scenario resources"
 
-# TODO(bwplotka): All scenarios has the same load and requires GMP operator. Make it more flexible
-# if needed later on.
-# kubectlExpandApply "./manifests/gmp-operator"
-kubectlExpandApply "./manifests/load/avalanche.yaml"
+export BENCH_NAME
+export PROJECT_ID
+export ZONE
+export CLUSTER_NAME
+
+kubectlExpandApply "./manifests/load/avalanche.exampletarget.yaml"
 kubectlExpandApply "${SCENARIO}"

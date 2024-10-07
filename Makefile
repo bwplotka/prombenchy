@@ -8,13 +8,13 @@ help:
 	@awk 'BEGIN {FS = ": ##"; printf "Usage:\n  make <target>\n\nTargets:\n"} /^[a-zA-Z0-9_\.\-\/%]+: ##/ { printf "  %-45s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 
 .PHONY: check-deps
-check-deps: ## Check local dependencies.
+check-deps: $(GOMPLATE) ## Check local dependencies.
 	@command -v gcloud >/dev/null 2>&1 || { echo 'Please install gcloud (https://cloud.google.com/sdk/gcloud#download_and_install_the)'; exit 1; }
 	@command -v go >/dev/null 2>&1 || { echo 'Please install go (https://go.dev/doc/install)'; exit 1; }
 	@command -v kubectl >/dev/null 2>&1 || { echo 'Please install kubectl'; exit 1; }
 
 .PHONY: start
-start: check-deps ## Start benchmark on the current cluster.
+start: check-deps ## Start a new benchmark on the current cluster.
 	@test -n "$(BENCH_NAME)" || (echo "BENCH_NAME variable is not set, what name for this benchmark you want to use?" ; exit 1)
 	@# TODO(bwplotka): Check against cluster mismatches.
 	@# TODO(bwplotka): Check if this benchmark is already running.
@@ -41,3 +41,23 @@ cluster-destroy: check-deps ## Tear down the benchmarking GKE cluster.
 .PHONY: lint
 lint: ## Lint resources.
 	bash ./scripts/shellcheck.sh
+
+GOMODS := $(shell find . -name "go.mod" | grep -v .bingo | xargs dirname)
+.PHONY: test
+test:
+	@for gomod in $(GOMODS); do \
+		cd $$gomod && go test -v ./...; \
+    done
+
+GOFUMPT = gofumpt
+$(GOFUMPT):
+	@go install mvdan.cc/gofumpt@latest
+
+GO_FILES = $(shell find . -path ./vendor -prune -o -name '*.go' -print)
+
+.PHONY: format
+format: $(GOFUMPT) $(GOIMPORTS)
+	@echo ">> formating imports"
+	@$(GOIMPORTS) -w $(GO_FILES)
+	@echo ">> gofumpt-ing the code; golangci-lint requires this"
+	@$(GOFUMPT) -extra -w $(GO_FILES)

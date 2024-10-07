@@ -1,0 +1,276 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: collector
+  namespace: {{ .Env.BENCH_NAME }}
+  annotations:
+    iam.gke.io/gcp-service-account: gmp-prombench@{{ .Env.PROJECT_ID }}.iam.gserviceaccount.com
+---
+# Source: prometheus-engine/templates/role.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Env.BENCH_NAME }}:collector
+rules:
+- resources:
+  - endpoints
+  - nodes
+  - nodes/metrics
+  - pods
+  - services
+  apiGroups: [""]
+  verbs: ["get", "list", "watch"]
+- resources:
+  - configmaps
+  apiGroups: [""]
+  verbs: ["get"]
+- nonResourceURLs: ["/metrics"]
+  verbs: ["get"]
+---
+# Source: prometheus-engine/templates/rolebinding.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Env.BENCH_NAME }}:collector
+roleRef:
+  name: {{ .Env.BENCH_NAME }}:collector
+  kind: ClusterRole
+  apiGroup: rbac.authorization.k8s.io
+subjects:
+- name: collector
+  namespace: {{ .Env.BENCH_NAME }}
+  kind: ServiceAccount
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: collector
+  namespace: {{ .Env.BENCH_NAME }}
+  labels:
+    benchmark: {{ .Env.BENCH_NAME }}
+spec:
+  selector:
+    matchLabels:
+      # DO NOT MODIFY - label selectors are immutable by the Kubernetes API.
+      # see: https://kubernetes.io/docs/concepts/workloads/controllers/daemonset/#pod-selector.
+      app.kubernetes.io/name: collector
+  template:
+    metadata:
+      labels:
+        app: collector
+        app.kubernetes.io/name: collector
+        benchmark: {{ .Env.BENCH_NAME }}
+      annotations:
+        # The emptyDir for the storage and config directories prevents cluster
+        # autoscaling unless this annotation is set.
+        cluster-autoscaler.kubernetes.io/safe-to-evict: "true"
+    spec:
+      serviceAccountName: collector
+      automountServiceAccountToken: true
+      containers:
+      - name: otel-collector
+        image: otel/opentelemetry-collector-contrib:0.105.0
+        command:
+          - "/otelcol-contrib"
+          - "--config=/conf/collector.yaml"
+        env:
+          - name: MY_POD_IP
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: status.podIP
+          - name: NODE_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: spec.nodeName
+        volumeMounts:
+        - name: collector-config
+          mountPath: /conf
+        ports:
+        - name: otel-ins # -ins, tells core Prometheus to scrape it.
+          containerPort: 8888
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 13133
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - all
+          privileged: false
+      volumes:
+      - name: collector-config
+        configMap:
+          name: collector-config
+          items:
+          - key: collector.yaml
+            path: collector.yaml
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: kubernetes.io/arch
+                operator: In
+                values:
+                - arm64
+                - amd64
+              - key: kubernetes.io/os
+                operator: In
+                values:
+                - linux
+      tolerations:
+      - effect: NoExecute
+        operator: Exists
+      - effect: NoSchedule
+        operator: Exists
+      securityContext:
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      nodeSelector:
+        role: {{ .Env.BENCH_NAME }}-work
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  creationTimestamp: null
+  name: collector-config
+  namespace: {{ .Env.BENCH_NAME }}
+data:
+  collector.yaml: |
+    exporters:
+      googlemanagedprometheus:
+
+    extensions:
+      health_check:
+        endpoint: ${env:MY_POD_IP}:13133
+    processors:
+      #      resource/bench:
+      #        attributes:
+      #        - key: "cluster"
+      #          value: "{{ .Env.CLUSTER_NAME }}"
+      #          action: upsert
+      #        - key: "namespace"
+      #          value: "{{ .Env.BENCH_NAME }}"
+      #          action: upsert
+      #        - key: "location"
+      #          value: "{{ .Env.ZONE }}"
+      #          action: upsert
+
+      batch:
+        send_batch_max_size: 200
+        send_batch_size: 200
+        timeout: 5s
+
+      resourcedetection:
+        detectors: [gcp]
+        timeout: 10s
+
+      #transform/collision:
+      #        metric_statements:
+      #        - context: datapoint
+      #          statements:
+      #          - set(attributes["exported_location"], attributes["location"])
+      #          - delete_key(attributes, "location")
+      #          - set(attributes["exported_cluster"], attributes["cluster"])
+      #          - delete_key(attributes, "cluster")
+      #          - set(attributes["exported_namespace"], attributes["namespace"])
+      #          - delete_key(attributes, "namespace")
+      #          - set(attributes["exported_job"], attributes["job"])
+      #          - delete_key(attributes, "job")
+      #          - set(attributes["exported_instance"], attributes["instance"])
+      #          - delete_key(attributes, "instance")
+      #          - set(attributes["exported_project_id"], attributes["project_id"])
+      #          - delete_key(attributes, "project_id")
+
+    receivers:
+      # NOTE(bwplotka): Mimicking scrape config of GMP operator, to ensure
+      # we have the same labels on the output with the same relabel processing.
+      # Related issue: https://github.com/bwplotka/prombenchy/issues/13
+      prometheus/bench:
+        config:
+          scrape_configs:
+          - job_name: PodMonitoring/gmp/avalanche/metrics
+            honor_timestamps: false
+            scrape_interval: 15s
+            scrape_timeout: 15s
+            metrics_path: /metrics
+            follow_redirects: true
+            enable_http2: true
+            relabel_configs:
+            - source_labels: [__meta_kubernetes_namespace]
+              regex: {{ .Env.BENCH_NAME }}
+              action: keep
+            - source_labels: [__meta_kubernetes_pod_label_app]
+              regex: avalanche
+              action: keep
+            - source_labels: [__meta_kubernetes_pod_name]
+              target_label: pod
+              action: replace
+            - source_labels: [__meta_kubernetes_pod_container_name]
+              target_label: container
+              action: replace
+            - source_labels: [__meta_kubernetes_namespace]
+              target_label: namespace
+              action: replace
+            - target_label: job
+              replacement: avalanche
+              action: replace
+            - source_labels: [__meta_kubernetes_pod_phase]
+              regex: (Failed|Succeeded)
+              action: drop
+            - target_label: project_id
+              replacement: {{ .Env.PROJECT_ID }}
+              action: replace
+            - target_label: location
+              replacement: {{ .Env.ZONE }}
+              action: replace
+            - target_label: cluster
+              replacement: {{ .Env.CLUSTER_NAME }}
+              action: replace
+            - source_labels: [__meta_kubernetes_pod_name]
+              target_label: __tmp_instance
+              action: replace
+            - source_labels: [__meta_kubernetes_pod_controller_kind, __meta_kubernetes_pod_node_name]
+              regex: DaemonSet;(.*)
+              target_label: __tmp_instance
+              replacement: $$1
+              action: replace
+            - source_labels: [__meta_kubernetes_pod_container_port_name]
+              regex: metrics
+              action: keep
+            - source_labels: [__tmp_instance, __meta_kubernetes_pod_container_port_name]
+              regex: (.+);(.+)
+              target_label: instance
+              replacement: $$1:$$2
+              action: replace
+            kubernetes_sd_configs:
+            - role: pod
+              kubeconfig_file: ""
+              follow_redirects: true
+              enable_http2: true
+              selectors:
+              - role: pod
+                field: spec.nodeName=${env:NODE_NAME}
+
+    service:
+      extensions:
+      - health_check
+      pipelines:
+        metrics:
+          exporters:
+          - googlemanagedprometheus
+          processors:
+          - resourcedetection
+          - batch
+          # - transform/collision
+          receivers:
+          - prometheus/bench
+      telemetry:
+        metrics:
+          address: 0.0.0.0:8888

@@ -48,54 +48,25 @@ trap "exit 1"           HUP INT PIPE QUIT TERM
 trap 'rm -r "$TEMP_DIR"'  EXIT
 
 # Make sure the gmp-prombench Service Account exists
+# TODO(bwplotka): Clean this up, test again after changes.
 SA="gmp-prombench"
 if ! gcloud iam service-accounts list --project=${PROJECT_ID} | grep ${SA}
 then
   gcloud iam service-accounts create "${SA}" --project=${PROJECT_ID} \
   --description="A service account just to used for the core GMP manifests" \
-  --display-name="GMP Prombench Service Account" \
+  --display-name="GMP Prombenchy Service Account" \
   --quiet
+
+  gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
+    --member="serviceAccount:${SA}@${PROJECT_ID}.iam.gserviceaccount.com" \
+    --role="roles/iam.serviceAccountUser" \
+    --quiet
+
+  gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
+    --member="serviceAccount:${SA}@${PROJECT_ID}.iam.gserviceaccount.com" \
+    --role="roles/monitoring.metricWriter" \
+    --quiet
 fi
-
-gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
-  --member="serviceAccount:${SA}@${PROJECT_ID}.iam.gserviceaccount.com" \
-  --role="roles/iam.serviceAccountUser" \
-  --quiet
-
-gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
-  --member="serviceAccount:${SA}@${PROJECT_ID}.iam.gserviceaccount.com" \
-  --role="roles/monitoring.metricWriter" \
-  --quiet
-
-gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
-  --member="serviceAccount:${SA}@${PROJECT_ID}.iam.gserviceaccount.com" \
-  --role="roles/monitoring.metricWriter" \
-  --quiet
-
-gcloud iam service-accounts add-iam-policy-binding ${SA}@${PROJECT_ID}.iam.gserviceaccount.com \
-    --role roles/iam.workloadIdentityUser \
-    --member "serviceAccount:${PROJECT_ID}.svc.id.goog[core/prometheus]" \
-    --project ${PROJECT_ID}
-
-gcloud iam service-accounts add-iam-policy-binding ${SA}@${PROJECT_ID}.iam.gserviceaccount.com \
-    --role roles/iam.workloadIdentityUser \
-    --member "serviceAccount:${PROJECT_ID}.svc.id.goog[gmp-system/operator]" \
-    --project ${PROJECT_ID}
-
-gcloud iam service-accounts add-iam-policy-binding ${SA}@${PROJECT_ID}.iam.gserviceaccount.com \
-    --role roles/iam.workloadIdentityUser \
-    --member "serviceAccount:${PROJECT_ID}.svc.id.goog[gmp-system/collector]" \
-    --project ${PROJECT_ID}
-
-gcloud iam service-accounts add-iam-policy-binding ${SA}@${PROJECT_ID}.iam.gserviceaccount.com \
-    --role roles/iam.workloadIdentityUser \
-    --member "serviceAccount:${PROJECT_ID}.svc.id.goog[otel-prom/collector]" \
-    --project ${PROJECT_ID}
-
-gcloud iam service-accounts add-iam-policy-binding ${SA}@${PROJECT_ID}.iam.gserviceaccount.com \
-    --role roles/iam.workloadIdentityUser \
-    --member "serviceAccount:${PROJECT_ID}.svc.id.goog[otel-bench/collector]" \
-    --project ${PROJECT_ID}
 
 echo "## Installing core resources"
 PROJECT_ID=${PROJECT_ID} ${GOMPLATE} --input-dir=./manifests/core --output-dir="${TEMP_DIR}"
