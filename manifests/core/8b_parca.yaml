@@ -28,35 +28,22 @@ data:
         relabel_configs:
           - action: keep
             source_labels: [__meta_kubernetes_pod_label_app]
-            regex: prometheus|managed-prometheus-collector
-          - source_labels: [__meta_kubernetes_pod_label_prometheus]
-            target_label: prometheus
-          - source_labels: [__meta_kubernetes_pod_node_name]
-            action: replace
+            regex: collector
+          - action: keep
+            source_labels: [__meta_kubernetes_pod_container_name]
+            regex: prometheus|otel-collector
+          - action: replace 
+            source_labels: [__meta_kubernetes_pod_label_app]
+            target_label: job
+          - action: replace
+            source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+          - action: replace
+            source_labels: [__meta_kubernetes_pod_node_name]
             target_label: node_name
-          - source_labels: [__meta_kubernetes_pod_label_benchmark]
-            target_label: benchmark
-          - source_labels: [ __address__ ]
-            target_label: instance
           - action: replace
             source_labels: [__meta_kubernetes_pod_container_name]
             target_label: container
-#          - source_labels: [__profile_path__]
-#            target_label: __init_profile_path
-#          - source_labels: [__meta_kubernetes_service_label_app, __init_profile_path]
-#            regex: prometheus-meta;(.*)
-#            replacement: /prometheus-meta$1
-#            target_label: __profile_path__
-#          - source_labels: [prometheus, pr_number, __init_profile_path]
-#            regex: test-.*;(.*);(.*)
-#            replacement: /$1/prometheus-release$2
-#            target_label: __profile_path__
-#          - source_labels: [prometheus, pr_number, __init_profile_path]
-#            regex: test-pr-.*;(.*);(.*)
-#            replacement: /$1/prometheus-pr$2
-#            target_label: __profile_path__
-#          - regex: __init_profile_path
-#            action: labeldrop
 
 ---
 apiVersion: apps/v1
