@@ -4,51 +4,7 @@
     "columns": 48,
     "tiles": [
       {
-        "width": 24,
-        "height": 13,
-        "widget": {
-          "title": "Collector samples per sec scraped (should be ~10.6k)",
-          "xyChart": {
-            "chartOptions": {
-              "mode": "COLOR"
-            },
-            "dataSets": [
-              {
-                "plotType": "LINE",
-                "targetAxis": "Y1",
-                "timeSeriesQuery": {
-                  "prometheusQuery": "sum by (pod, namespace) (rate(prometheus_tsdb_head_samples_appended_total{cluster=\"bwplotka-prombenchy\", job=\"collector\"}[5m]))\n",
-                  "unitOverride": ""
-                }
-              },
-              {
-                "plotType": "LINE",
-                "targetAxis": "Y1",
-                "timeSeriesQuery": {
-                  "prometheusQuery": "sum by (pod, namespace) (rate(prometheus_agent_samples_appended_total{cluster=\"bwplotka-prombenchy\", job=\"collector\"}[5m]))",
-                  "unitOverride": ""
-                }
-              },
-              {
-                "plotType": "LINE",
-                "targetAxis": "Y1",
-                "timeSeriesQuery": {
-                  "prometheusQuery": "sum by (pod, namespace) (rate(otelcol_receiver_accepted_metric_points_total{cluster=\"bwplotka-prombenchy\"}[5m]))",
-                  "unitOverride": ""
-                }
-              }
-            ],
-            "thresholds": [],
-            "yAxis": {
-              "label": "",
-              "scale": "LINEAR"
-            }
-          }
-        }
-      },
-      {
-        "xPos": 24,
-        "yPos": 16,
+        "yPos": 39,
         "width": 24,
         "height": 13,
         "widget": {
@@ -56,8 +12,8 @@
             "dataSets": [
               {
                 "timeSeriesQuery": {
-                  "prometheusQuery": "sum by (__name__, pod) (container_memory_working_set_bytes{cluster=\"bwplotka-prombenchy\", container=\"prometheus\", pod=~\"collector-.*\"})",
-                  "unitOverride": "By",
+                  "prometheusQuery": "sum by (pod, namespace, type) (rate(prometheus_tsdb_head_samples_appended_total{cluster=\"bwplotka-prombenchy\", job=\"collector\"}[5m]))\n",
+                  "unitOverride": "",
                   "outputFullDuration": false
                 },
                 "plotType": "LINE",
@@ -69,8 +25,8 @@
               },
               {
                 "timeSeriesQuery": {
-                  "prometheusQuery": "sum by (__name__, pod) (go_memstats_heap_alloc_bytes{cluster=\"bwplotka-prombenchy\",container=\"prometheus\", job=~\".*collector\"})\n\n",
-                  "unitOverride": "By",
+                  "prometheusQuery": "sum by (pod, namespace, type) (rate(prometheus_agent_samples_appended_total{cluster=\"bwplotka-prombenchy\", job=\"collector\"}[5m]))",
+                  "unitOverride": "",
                   "outputFullDuration": false
                 },
                 "plotType": "LINE",
@@ -79,127 +35,10 @@
                 "dimensions": [],
                 "measures": [],
                 "breakdowns": []
-              }
-            ],
-            "thresholds": [],
-            "yAxis": {
-              "label": "",
-              "scale": "LINEAR"
-            },
-            "chartOptions": {
-              "mode": "COLOR",
-              "showLegend": false,
-              "displayHorizontal": false
-            }
-          },
-          "title": "Collector Memory (working set and heap)",
-          "id": ""
-        }
-      },
-      {
-        "yPos": 13,
-        "width": 24,
-        "height": 12,
-        "widget": {
-          "title": "Collector Active Series (should be ~160k)",
-          "xyChart": {
-            "chartOptions": {
-              "mode": "COLOR"
-            },
-            "dataSets": [
-              {
-                "plotType": "LINE",
-                "targetAxis": "Y1",
-                "timeSeriesQuery": {
-                  "prometheusQuery": "sum by (pod, namespace) (prometheus_tsdb_head_series{cluster=\"bwplotka-prombenchy\", job=\"collector\"})",
-                  "unitOverride": ""
-                }
               },
               {
-                "plotType": "LINE",
-                "targetAxis": "Y1",
                 "timeSeriesQuery": {
-                  "prometheusQuery": "sum by (pod, namespace) (prometheus_agent_active_series{cluster=\"bwplotka-prombenchy\", job=\"collector\"})",
-                  "unitOverride": ""
-                }
-              }
-            ],
-            "thresholds": [],
-            "yAxis": {
-              "label": "",
-              "scale": "LINEAR"
-            }
-          }
-        }
-      },
-      {
-        "xPos": 24,
-        "yPos": 29,
-        "width": 24,
-        "height": 12,
-        "widget": {
-          "title": "Collector CPU Use",
-          "xyChart": {
-            "chartOptions": {
-              "mode": "COLOR"
-            },
-            "dataSets": [
-              {
-                "plotType": "LINE",
-                "targetAxis": "Y1",
-                "timeSeriesQuery": {
-                  "prometheusQuery": "sum by (pod, namespace) (rate(process_cpu_seconds_total{cluster=\"bwplotka-prombenchy\", container=~\"prometheus|otel-collector\", job=\"collector\"}[${__interval}]))",
-                  "unitOverride": ""
-                }
-              }
-            ],
-            "thresholds": [],
-            "yAxis": {
-              "label": "",
-              "scale": "LINEAR"
-            }
-          }
-        }
-      },
-      {
-        "yPos": 25,
-        "width": 24,
-        "height": 10,
-        "widget": {
-          "title": "GCM Ingested series for one counter (should be 160 with 320 staleness spikes)",
-          "xyChart": {
-            "chartOptions": {
-              "mode": "COLOR"
-            },
-            "dataSets": [
-              {
-                "plotType": "LINE",
-                "targetAxis": "Y1",
-                "timeSeriesQuery": {
-                  "prometheusQuery": "count by (namespace)(avalanche_counter_metric_mmmmm_0_0_total{cluster=\"bwplotka-prombenchy\"})",
-                  "unitOverride": ""
-                }
-              }
-            ],
-            "thresholds": [],
-            "yAxis": {
-              "label": "",
-              "scale": "LINEAR"
-            }
-          }
-        }
-      },
-      {
-        "xPos": 24,
-        "yPos": 41,
-        "width": 24,
-        "height": 10,
-        "widget": {
-          "xyChart": {
-            "dataSets": [
-              {
-                "timeSeriesQuery": {
-                  "prometheusQuery": "#sum(time() - container_start_time_seconds{cluster=\"bwplotka-prombenchy\", pod=~\"collector.*\", container!=\"\"}) by (container)\n\nkube_pod_container_status_restarts",
+                  "prometheusQuery": "sum by (pod, namespace) (rate(otelcol_receiver_accepted_metric_points{cluster=\"bwplotka-prombenchy\"}[5m])) # Just series, not adjusted series?",
                   "unitOverride": "",
                   "outputFullDuration": false
                 },
@@ -222,13 +61,88 @@
               "displayHorizontal": false
             }
           },
-          "title": "(broken) Collector containers uptime ",
+          "title": "Collector samples per sec scraped (should be ~10.6k for Prom, and ~5.7 for Otel due to \"adjusted\" logic)",
+          "id": ""
+        }
+      },
+      {
+        "width": 24,
+        "height": 13,
+        "widget": {
+          "title": "Collector Memory (working set)",
+          "xyChart": {
+            "chartOptions": {
+              "mode": "COLOR"
+            },
+            "dataSets": [
+              {
+                "plotType": "LINE",
+                "targetAxis": "Y1",
+                "timeSeriesQuery": {
+                  "prometheusQuery": "sum by (__name__, pod, namespace) (container_memory_working_set_bytes{cluster=\"bwplotka-prombenchy\", container=~\"otel-collector|prometheus\", pod=~\"collector-.*\"})",
+                  "unitOverride": "By"
+                }
+              }
+            ],
+            "thresholds": [],
+            "yAxis": {
+              "label": "",
+              "scale": "LINEAR"
+            }
+          }
+        }
+      },
+      {
+        "yPos": 52,
+        "width": 24,
+        "height": 12,
+        "widget": {
+          "xyChart": {
+            "dataSets": [
+              {
+                "timeSeriesQuery": {
+                  "prometheusQuery": "sum by (pod, namespace) (prometheus_tsdb_head_series{cluster=\"bwplotka-prombenchy\", job=\"collector\"})",
+                  "unitOverride": "",
+                  "outputFullDuration": false
+                },
+                "plotType": "LINE",
+                "legendTemplate": "",
+                "targetAxis": "Y1",
+                "dimensions": [],
+                "measures": [],
+                "breakdowns": []
+              },
+              {
+                "timeSeriesQuery": {
+                  "prometheusQuery": "sum by (pod, namespace) (prometheus_agent_active_series{cluster=\"bwplotka-prombenchy\", job=\"collector\"})",
+                  "unitOverride": "",
+                  "outputFullDuration": false
+                },
+                "plotType": "LINE",
+                "legendTemplate": "",
+                "targetAxis": "Y1",
+                "dimensions": [],
+                "measures": [],
+                "breakdowns": []
+              }
+            ],
+            "thresholds": [],
+            "yAxis": {
+              "label": "",
+              "scale": "LINEAR"
+            },
+            "chartOptions": {
+              "mode": "COLOR",
+              "showLegend": false,
+              "displayHorizontal": false
+            }
+          },
+          "title": "Collector Active Series (should be ~160k with 2x spikes) - only Prometheus",
           "id": ""
         }
       },
       {
         "xPos": 24,
-        "yPos": 51,
         "width": 24,
         "height": 13,
         "widget": {
@@ -236,7 +150,94 @@
             "dataSets": [
               {
                 "timeSeriesQuery": {
-                  "prometheusQuery": "sum(scrape_samples_scraped{cluster=\"bwplotka-prombenchy\", job=\"avalanche\"}) by (namespace)",
+                  "prometheusQuery": "sum by (pod, namespace) (rate(process_cpu_seconds_total{cluster=\"bwplotka-prombenchy\", container=\"prometheus\", job=\"collector\"}[${__interval}]))\n\n",
+                  "unitOverride": "",
+                  "outputFullDuration": false
+                },
+                "plotType": "LINE",
+                "legendTemplate": "",
+                "targetAxis": "Y1",
+                "dimensions": [],
+                "measures": [],
+                "breakdowns": []
+              },
+              {
+                "timeSeriesQuery": {
+                  "prometheusQuery": "sum by (pod, namespace) (rate(otelcol_process_cpu_seconds{cluster=\"bwplotka-prombenchy\", job=\"collector\"}[${__interval}]))\n",
+                  "unitOverride": "",
+                  "outputFullDuration": false
+                },
+                "plotType": "LINE",
+                "legendTemplate": "",
+                "targetAxis": "Y1",
+                "dimensions": [],
+                "measures": [],
+                "breakdowns": []
+              }
+            ],
+            "thresholds": [],
+            "yAxis": {
+              "label": "",
+              "scale": "LINEAR"
+            },
+            "chartOptions": {
+              "mode": "COLOR",
+              "showLegend": false,
+              "displayHorizontal": false
+            }
+          },
+          "title": "Collector CPU Use",
+          "id": ""
+        }
+      },
+      {
+        "xPos": 24,
+        "yPos": 52,
+        "width": 24,
+        "height": 10,
+        "widget": {
+          "xyChart": {
+            "dataSets": [
+              {
+                "timeSeriesQuery": {
+                  "prometheusQuery": "count by (namespace)(avalanche_counter_metric_mmmmm_0_0_total{cluster=\"bwplotka-prombenchy\", series_id=\"1\"})",
+                  "unitOverride": "",
+                  "outputFullDuration": false
+                },
+                "plotType": "LINE",
+                "legendTemplate": "",
+                "targetAxis": "Y1",
+                "dimensions": [],
+                "measures": [],
+                "breakdowns": []
+              }
+            ],
+            "thresholds": [],
+            "yAxis": {
+              "label": "",
+              "scale": "LINEAR"
+            },
+            "chartOptions": {
+              "mode": "COLOR",
+              "showLegend": false,
+              "displayHorizontal": false
+            }
+          },
+          "title": "GCM Ingested series for one counter, series_id=1 (should be 16 with 32 staleness spikes)",
+          "id": ""
+        }
+      },
+      {
+        "xPos": 24,
+        "yPos": 62,
+        "width": 24,
+        "height": 13,
+        "widget": {
+          "xyChart": {
+            "dataSets": [
+              {
+                "timeSeriesQuery": {
+                  "prometheusQuery": "sum by (namespace) (scrape_samples_scraped{cluster=\"bwplotka-prombenchy\", job=\"avalanche\"})",
                   "unitOverride": "",
                   "outputFullDuration": false
                 },
@@ -264,7 +265,7 @@
         }
       },
       {
-        "yPos": 35,
+        "yPos": 26,
         "width": 24,
         "height": 13,
         "widget": {
@@ -272,7 +273,7 @@
             "dataSets": [
               {
                 "timeSeriesQuery": {
-                  "prometheusQuery": "container_memory_mapped_file{cluster=\"bwplotka-prombenchy\", image=~\".*prometheus.*\", pod=~\"collector.*\"}",
+                  "prometheusQuery": "sum by (namespace, container) (container_memory_mapped_file{cluster=\"bwplotka-prombenchy\", container=~\"otel-collector|prometheus\", pod=~\"collector.*\"})",
                   "unitOverride": "By",
                   "outputFullDuration": false
                 },
@@ -300,11 +301,196 @@
         }
       },
       {
-        "yPos": 48,
+        "xPos": 24,
+        "yPos": 13,
         "width": 24,
         "height": 13,
         "widget": {
-          "title": "Collector replay time",
+          "xyChart": {
+            "dataSets": [
+              {
+                "timeSeriesQuery": {
+                  "prometheusQuery": "sum by (namespace, pod) (prometheus_tsdb_data_replay_duration_seconds{cluster=\"bwplotka-prombenchy\",container=\"prometheus\", job=\"collector\"})\n\n",
+                  "unitOverride": "",
+                  "outputFullDuration": false
+                },
+                "plotType": "LINE",
+                "legendTemplate": "",
+                "targetAxis": "Y1",
+                "dimensions": [],
+                "measures": [],
+                "breakdowns": []
+              }
+            ],
+            "thresholds": [],
+            "yAxis": {
+              "label": "",
+              "scale": "LINEAR"
+            },
+            "chartOptions": {
+              "mode": "COLOR",
+              "showLegend": false,
+              "displayHorizontal": false
+            }
+          },
+          "title": "[prom only] Collector replay time",
+          "id": ""
+        }
+      },
+      {
+        "xPos": 1,
+        "yPos": 89,
+        "width": 23,
+        "height": 13,
+        "widget": {
+          "xyChart": {
+            "dataSets": [
+              {
+                "timeSeriesQuery": {
+                  "prometheusQuery": "max by (namespace) (max_over_time(container_memory_working_set_bytes{cluster=\"bwplotka-prombenchy\", container=~\"otel-collector|prometheus\", pod=~\"collector-.*\"}[10h]))",
+                  "unitOverride": "By",
+                  "outputFullDuration": false
+                },
+                "plotType": "LINE",
+                "legendTemplate": "",
+                "targetAxis": "Y1",
+                "dimensions": [],
+                "measures": [],
+                "breakdowns": []
+              }
+            ],
+            "thresholds": [],
+            "yAxis": {
+              "label": "",
+              "scale": "LINEAR"
+            },
+            "chartOptions": {
+              "mode": "COLOR",
+              "showLegend": false,
+              "displayHorizontal": false
+            }
+          },
+          "title": "RSS max_over_10h",
+          "id": ""
+        }
+      },
+      {
+        "xPos": 1,
+        "yPos": 102,
+        "width": 46,
+        "height": 18,
+        "widget": {
+          "xyChart": {
+            "dataSets": [
+              {
+                "timeSeriesQuery": {
+                  "prometheusQuery": "max by (namespace) (rate(container_cpu_usage_seconds_total{cluster=\"bwplotka-prombenchy\", container=~\"otel-collector|prometheus\", pod=~\"collector-.*\"}[10h]))\n",
+                  "unitOverride": "",
+                  "outputFullDuration": false
+                },
+                "plotType": "LINE",
+                "legendTemplate": "",
+                "targetAxis": "Y1",
+                "dimensions": [],
+                "measures": [],
+                "breakdowns": []
+              }
+            ],
+            "thresholds": [],
+            "yAxis": {
+              "label": "",
+              "scale": "LINEAR"
+            },
+            "chartOptions": {
+              "mode": "COLOR",
+              "showLegend": false,
+              "displayHorizontal": false
+            }
+          },
+          "title": "CPU rate 10h",
+          "id": ""
+        }
+      },
+      {
+        "xPos": 24,
+        "yPos": 89,
+        "width": 23,
+        "height": 13,
+        "widget": {
+          "xyChart": {
+            "dataSets": [
+              {
+                "timeSeriesQuery": {
+                  "prometheusQuery": "max by (namespace) (avg_over_time(container_memory_working_set_bytes{cluster=\"bwplotka-prombenchy\", container=~\"otel-collector|prometheus\", pod=~\"collector-.*\"}[10h]))",
+                  "unitOverride": "By",
+                  "outputFullDuration": false
+                },
+                "plotType": "LINE",
+                "legendTemplate": "",
+                "targetAxis": "Y1",
+                "dimensions": [],
+                "measures": [],
+                "breakdowns": []
+              }
+            ],
+            "thresholds": [],
+            "yAxis": {
+              "label": "",
+              "scale": "LINEAR"
+            },
+            "chartOptions": {
+              "mode": "COLOR",
+              "showLegend": false,
+              "displayHorizontal": false
+            }
+          },
+          "title": "RSS avg_over_10h",
+          "id": ""
+        }
+      },
+      {
+        "yPos": 64,
+        "width": 24,
+        "height": 12,
+        "widget": {
+          "xyChart": {
+            "dataSets": [
+              {
+                "timeSeriesQuery": {
+                  "prometheusQuery": "avg by (namespace, job) (scrape_samples_scraped{cluster=\"bwplotka-prombenchy\", job=\"avalanche\"})",
+                  "unitOverride": "",
+                  "outputFullDuration": false
+                },
+                "plotType": "LINE",
+                "legendTemplate": "",
+                "targetAxis": "Y1",
+                "dimensions": [],
+                "measures": [],
+                "breakdowns": []
+              }
+            ],
+            "thresholds": [],
+            "yAxis": {
+              "label": "",
+              "scale": "LINEAR"
+            },
+            "chartOptions": {
+              "mode": "COLOR",
+              "showLegend": false,
+              "displayHorizontal": false
+            }
+          },
+          "title": "Avg Avalanche Target Size",
+          "id": ""
+        }
+      },
+      {
+        "xPos": 24,
+        "yPos": 39,
+        "width": 24,
+        "height": 13,
+        "widget": {
+          "title": "GCM ingested samples for (all) avalanche metrics.",
           "xyChart": {
             "chartOptions": {
               "mode": "COLOR"
@@ -314,7 +500,7 @@
                 "plotType": "LINE",
                 "targetAxis": "Y1",
                 "timeSeriesQuery": {
-                  "prometheusQuery": "sum by (namespace, pod) (prometheus_tsdb_data_replay_duration_seconds{cluster=\"bwplotka-prombenchy\",container=\"prometheus\", job=\"collector\"})\n\n",
+                  "prometheusQuery": "sum by (attribution_id) (rate(monitoring_googleapis_com:collection_attribution_write_sample_count{monitored_resource=\"monitoring.googleapis.com/MetricIngestionAttribution\", attribution_dimension=\"namespace\",metric_type=~\"prometheus.googleapis.com/avalanche_.*\", attribution_id!=\"bwtest\", resource_container=\"gpe-test-1\"}[${__interval}]))\n",
                   "unitOverride": ""
                 }
               }
@@ -328,128 +514,35 @@
         }
       },
       {
-        "xPos": 24,
-        "width": 8,
-        "height": 8,
+        "yPos": 89,
+        "width": 48,
+        "height": 31,
         "widget": {
-          "scorecard": {
-            "timeSeriesQuery": {
-              "prometheusQuery": "max_over_time(container_memory_working_set_bytes{cluster=\"bwplotka-prombenchy\", container=\"prometheus\", pod=~\"collector-.*\"}[10h])",
-              "unitOverride": "",
-              "outputFullDuration": true
-            },
-            "gaugeView": {
-              "lowerBound": 0,
-              "upperBound": 1
-            },
-            "thresholds": [],
-            "dimensions": [],
-            "measures": []
+          "title": "10h Efficiency Comparisons",
+          "collapsibleGroup": {
+            "collapsed": false
           },
-          "title": "RSS max_over_10h",
           "id": ""
         }
       },
       {
-        "xPos": 32,
-        "width": 8,
-        "height": 8,
+        "yPos": 39,
+        "width": 48,
+        "height": 50,
         "widget": {
-          "scorecard": {
-            "timeSeriesQuery": {
-              "prometheusQuery": "max_over_time(go_memstats_heap_alloc_bytes{cluster=\"bwplotka-prombenchy\",container=\"prometheus\", job=~\".*collector\"}[10h])",
-              "unitOverride": "",
-              "outputFullDuration": true
-            },
-            "gaugeView": {
-              "lowerBound": 0,
-              "upperBound": 1
-            },
-            "thresholds": [],
-            "dimensions": [],
-            "measures": []
+          "title": "Scraped / Ingestion Load ",
+          "collapsibleGroup": {
+            "collapsed": false
           },
-          "title": "Heap max_over_10h",
           "id": ""
         }
       },
       {
-        "xPos": 40,
-        "width": 8,
-        "height": 8,
-        "widget": {
-          "scorecard": {
-            "timeSeriesQuery": {
-              "prometheusQuery": "rate(process_cpu_seconds_total{cluster=\"bwplotka-prombenchy\", container=\"prometheus\", job=\"managed-prometheus-collector\"}[10h])",
-              "unitOverride": "",
-              "outputFullDuration": true
-            },
-            "gaugeView": {
-              "lowerBound": 0,
-              "upperBound": 1
-            },
-            "thresholds": [],
-            "dimensions": [],
-            "measures": []
-          },
-          "title": "CPU rate 10h",
-          "id": ""
-        }
-      },
-      {
-        "xPos": 24,
-        "yPos": 8,
-        "width": 8,
-        "height": 8,
-        "widget": {
-          "scorecard": {
-            "timeSeriesQuery": {
-              "prometheusQuery": "avg_over_time(container_memory_working_set_bytes{cluster=\"bwplotka-prombenchy\", container=\"prometheus\", pod=~\"collector-.*\"}[10h])",
-              "unitOverride": "",
-              "outputFullDuration": true
-            },
-            "gaugeView": {
-              "lowerBound": 0,
-              "upperBound": 1
-            },
-            "thresholds": [],
-            "dimensions": [],
-            "measures": []
-          },
-          "title": "RSS avg_over_10h",
-          "id": ""
-        }
-      },
-      {
-        "xPos": 32,
-        "yPos": 8,
-        "width": 8,
-        "height": 8,
-        "widget": {
-          "scorecard": {
-            "timeSeriesQuery": {
-              "prometheusQuery": "avg_over_time(go_memstats_heap_alloc_bytes{cluster=\"bwplotka-prombenchy\",container=\"prometheus\", job=~\".*collector\"}[10h])",
-              "unitOverride": "",
-              "outputFullDuration": true
-            },
-            "gaugeView": {
-              "lowerBound": 0,
-              "upperBound": 1
-            },
-            "thresholds": [],
-            "dimensions": [],
-            "measures": []
-          },
-          "title": "Heap avg_over_10h",
-          "id": ""
-        }
-      },
-      {
-        "yPos": 61,
+        "yPos": 76,
         "width": 24,
-        "height": 12,
+        "height": 13,
         "widget": {
-          "title": "Avg Avalanche Target Size",
+          "title": "Collector samples per second sent to GCM",
           "xyChart": {
             "chartOptions": {
               "mode": "COLOR"
@@ -459,7 +552,51 @@
                 "plotType": "LINE",
                 "targetAxis": "Y1",
                 "timeSeriesQuery": {
-                  "prometheusQuery": "avg by (namespace, job) (scrape_samples_scraped{cluster=\"bwplotka-prombenchy\"})",
+                  "prometheusQuery": "sum by (pod, namespace) (rate(gcm_export_samples_sent_total{cluster=\"bwplotka-prombenchy\", job=\"collector\"}[5m]))\n",
+                  "unitOverride": ""
+                }
+              },
+              {
+                "plotType": "LINE",
+                "targetAxis": "Y1",
+                "timeSeriesQuery": {
+                  "prometheusQuery": "sum by (pod, namespace) (rate(otelcol_exporter_sent_metric_points{cluster=\"bwplotka-prombenchy\", job=\"collector\"}[5m]))\n",
+                  "unitOverride": ""
+                }
+              }
+            ],
+            "thresholds": [],
+            "yAxis": {
+              "label": "",
+              "scale": "LINEAR"
+            }
+          }
+        }
+      },
+      {
+        "yPos": 13,
+        "width": 24,
+        "height": 13,
+        "widget": {
+          "title": "Collector Memory (heap)",
+          "xyChart": {
+            "chartOptions": {
+              "mode": "COLOR"
+            },
+            "dataSets": [
+              {
+                "plotType": "LINE",
+                "targetAxis": "Y1",
+                "timeSeriesQuery": {
+                  "prometheusQuery": "sum by (__name__, pod, namespace) (go_memstats_heap_alloc_bytes{cluster=\"bwplotka-prombenchy\",container=\"prometheus\", job=~\".*collector\"})\n\n",
+                  "unitOverride": "By"
+                }
+              },
+              {
+                "plotType": "LINE",
+                "targetAxis": "Y1",
+                "timeSeriesQuery": {
+                  "prometheusQuery": "sum by (__name__, pod, namespace) (otelcol_process_runtime_heap_alloc_bytes{cluster=\"bwplotka-prombenchy\"})",
                   "unitOverride": ""
                 }
               }
