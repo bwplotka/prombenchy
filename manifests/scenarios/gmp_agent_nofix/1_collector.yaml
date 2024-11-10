@@ -1,0 +1,290 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: collector
+  namespace: {{ .Env.BENCH_NAME }}
+  annotations:
+    iam.gke.io/gcp-service-account: gmp-prombench@{{ .Env.PROJECT_ID }}.iam.gserviceaccount.com
+---
+# Source: prometheus-engine/templates/role.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Env.BENCH_NAME }}:collector
+rules:
+- resources:
+  - endpoints
+  - nodes
+  - nodes/metrics
+  - pods
+  - services
+  apiGroups: [""]
+  verbs: ["get", "list", "watch"]
+- resources:
+  - configmaps
+  apiGroups: [""]
+  verbs: ["get"]
+- nonResourceURLs: ["/metrics"]
+  verbs: ["get"]
+---
+# Source: prometheus-engine/templates/rolebinding.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Env.BENCH_NAME }}:collector
+roleRef:
+  name: {{ .Env.BENCH_NAME }}:collector
+  kind: ClusterRole
+  apiGroup: rbac.authorization.k8s.io
+subjects:
+- name: collector
+  namespace: {{ .Env.BENCH_NAME }}
+  kind: ServiceAccount
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: collector
+  namespace: {{ .Env.BENCH_NAME }}
+data:
+  config.yaml: |
+    global: {}
+    scrape_configs:
+        - job_name: PodMonitoring/gmp/avalanche/metrics
+          honor_timestamps: false
+          scrape_interval: 15s
+          scrape_timeout: 15s
+          metrics_path: /metrics
+          follow_redirects: true
+          enable_http2: true
+          relabel_configs:
+            - source_labels: [__meta_kubernetes_namespace]
+              regex: {{ .Env.BENCH_NAME }}
+              action: keep
+            - source_labels: [__meta_kubernetes_pod_label_app]
+              regex: avalanche
+              action: keep
+            - source_labels: [__meta_kubernetes_pod_name]
+              target_label: pod
+              action: replace
+            - source_labels: [__meta_kubernetes_pod_container_name]
+              target_label: container
+              action: replace
+            - source_labels: [__meta_kubernetes_namespace]
+              target_label: namespace
+              action: replace
+            - target_label: job
+              replacement: avalanche
+              action: replace
+            - source_labels: [__meta_kubernetes_pod_phase]
+              regex: (Failed|Succeeded)
+              action: drop
+            - target_label: project_id
+              replacement: {{ .Env.PROJECT_ID }}
+              action: replace
+            - target_label: location
+              replacement: {{ .Env.ZONE }}
+              action: replace
+            - target_label: cluster
+              replacement: {{ .Env.CLUSTER_NAME }}
+              action: replace
+            - source_labels: [__meta_kubernetes_pod_name]
+              target_label: __tmp_instance
+              action: replace
+            - source_labels: [__meta_kubernetes_pod_controller_kind, __meta_kubernetes_pod_node_name]
+              regex: DaemonSet;(.*)
+              target_label: __tmp_instance
+              replacement: $1
+              action: replace
+            - source_labels: [__meta_kubernetes_pod_container_port_name]
+              regex: metrics
+              action: keep
+            - source_labels: [__tmp_instance, __meta_kubernetes_pod_container_port_name]
+              regex: (.+);(.+)
+              target_label: instance
+              replacement: $1:$2
+              action: replace
+          kubernetes_sd_configs:
+            - role: pod
+              kubeconfig_file: ""
+              follow_redirects: true
+              enable_http2: true
+              selectors:
+                - role: pod
+                  field: spec.nodeName=$(NODE_NAME)
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: collector
+  namespace: {{ .Env.BENCH_NAME }}
+  labels:
+    benchmark: {{ .Env.BENCH_NAME }}
+spec:
+  selector:
+    matchLabels:
+      # DO NOT MODIFY - label selectors are immutable by the Kubernetes API.
+      # see: https://kubernetes.io/docs/concepts/workloads/controllers/daemonset/#pod-selector.
+      app.kubernetes.io/name: collector
+  template:
+    metadata:
+      labels:
+        app: collector
+        app.kubernetes.io/name: collector
+        benchmark: {{ .Env.BENCH_NAME }}
+      annotations:
+        # The emptyDir for the storage and config directories prevents cluster
+        # autoscaling unless this annotation is set.
+        cluster-autoscaler.kubernetes.io/safe-to-evict: "true"
+        components.gke.io/component-name: managed_prometheus
+    spec:
+      serviceAccountName: collector
+      automountServiceAccountToken: true
+      initContainers:
+      - name: config-init
+        image: gke.gcr.io/gke-distroless/bash:20220419
+        command: ['/bin/bash', '-c', 'touch /prometheus/config_out/config.yaml']
+        volumeMounts:
+        - name: config-out
+          mountPath: /prometheus/config_out
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - all
+          privileged: false
+      containers:
+      - name: config-reloader
+        image: gke.gcr.io/prometheus-engine/config-reloader:v0.9.0-gke.1
+        args:
+        - --config-file=/prometheus/config/config.yaml
+        - --config-file-output=/prometheus/config_out/config.yaml
+        - --reload-url=http://127.0.0.1:19090/-/reload
+        - --ready-url=http://127.0.0.1:19090/-/ready
+        - --listen-address=:19091
+        ports:
+        - name: cfg-rel-ins
+          containerPort: 19091
+        env:
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: spec.nodeName
+        resources:
+          limits:
+            memory: 32M
+          requests:
+            cpu: 1m
+            memory: 4M
+        volumeMounts:
+        - name: config
+          readOnly: true
+          mountPath: /prometheus/config
+        - name: config-out
+          mountPath: /prometheus/config_out
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - all
+          privileged: false
+      - name: prometheus
+        # https://github.com/GoogleCloudPlatform/prometheus/pull/206
+        image: gke.gcr.io/prometheus-engine/prometheus:v2.45.3-gmp.9-gke.0
+        args:
+        - --config.file=/prometheus/config_out/config.yaml
+        - --enable-feature=exemplar-storage
+        - --enable-feature=agent
+        # Special Google flag for authorization using native Kubernetes secrets.
+        - --enable-feature=google-kubernetes-secret-provider
+        - --storage.agent.path=/prometheus/data
+        - --storage.agent.no-lockfile
+        - --storage.agent.retention.max-time=30m
+        - --storage.agent.wal-truncate-frequency=30m
+        - --storage.agent.wal-compression
+        - --web.listen-address=:19090
+        - --web.enable-lifecycle
+        - --web.route-prefix=/
+        - --export.user-agent-mode=kubectl
+        # JSON log format is needed for GKE to display log levels correctly.
+        - --log.format=json
+        # Special Google flag for force deleting all data on start. We use ephemeral storage in
+        # this manifest, but there are cases were container restart still reuses, potentially
+        # bad data (corrupted, with high cardinality causing OOMs or slow startups).
+        # Force deleting, so container restart is consistent with pod restart.
+        # NOTE: Data is likely already sent GCM, plus GCM export does not use that
+        # data on disk (WAL).
+        - --gmp.storage.delete-data-on-start
+        ports:
+        - name: prom-ins
+          containerPort: 19090
+        # The environment variable EXTRA_ARGS will be populated by the operator.
+        # DO NOT specify it here.
+        env:
+        - name: GOGC
+          value: "25"
+        resources:
+          limits:
+            memory: 3G # Limit on GKE standard.
+          requests:
+            cpu: 4m
+            memory: 32M
+        volumeMounts:
+        - name: storage
+          mountPath: /prometheus/data
+        - name: config-out
+          readOnly: true
+          mountPath: /prometheus/config_out
+#        - name: collection-secret
+#          readOnly: true
+#          mountPath: /etc/secrets
+        livenessProbe:
+          httpGet:
+            port: 19090
+            path: /-/healthy
+            scheme: HTTP
+        readinessProbe:
+          httpGet:
+            port: 19090
+            path: /-/ready
+            scheme: HTTP
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - all
+          privileged: false
+      volumes:
+      - name: storage
+        emptyDir: {}
+      - name: config
+        configMap:
+          name: collector
+      - name: config-out
+        emptyDir: {}
+#      - name: collection-secret
+#        secret:
+#          secretName: collection
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: kubernetes.io/arch
+                operator: In
+                values:
+                - arm64
+                - amd64
+              - key: kubernetes.io/os
+                operator: In
+                values:
+                - linux
+      securityContext:
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      nodeSelector:
+        role: {{ .Env.BENCH_NAME }}-work
