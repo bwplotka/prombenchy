@@ -17,9 +17,9 @@ The general flow looks as follows:
     You can start as many scenarios as you want on the single cluster (make sure to use unique `BENCH_NAME` though!). The scenario is a path to the "collector" manifest, so anything that will scrape `./manifests/load/avalanche.exampletarget.yaml`. Available scenarios in `./manifests/scenarios/`:
     * `gmp`: Prometheus running with Google Managed Prometheus engine exporting to Google Cloud Monitoring.
     * `gmp-otel`: OpenTelemetry Collector (`otelcol-contrib`) scraping targets and exporting to GCM using `googlemanagedprometheus` exporter.
-    * `otel-otlp` (alias `gmp-otlp`): OpenTelemetry Collector (`otelcol-google`) scraping targets and receiving OTLP, exporting directly via OTLP gRPC to Google Cloud Telemetry API (`telemetry.googleapis.com:443`).
-    * `prom-prw` (alias `prom-rw`): Upstream OSS Prometheus using Prometheus Remote Write v2 (`io.prometheus.write.v2.Request`) with `google_iam` authentication to Google Cloud Monitoring.
-    * `prom-rw-m` (alias `prom-prw-m`): Same as `prom-prw`, but uses `--enable-feature=metadata-wal-records` instead of `--enable-feature=type-and-unit-labels`.
+    * `otel-otlp`: OpenTelemetry Collector (`otelcol-google`) scraping targets and receiving OTLP, exporting directly via OTLP gRPC to Google Cloud Telemetry API (`telemetry.googleapis.com:443`).
+    * `prom-rw`: Upstream OSS Prometheus using Prometheus Remote Write v2 (`io.prometheus.write.v2.Request`) with `google_iam` authentication to Google Cloud Monitoring.
+    * `prom-rw-m`: Same as `prom-rw`, but uses `--enable-feature=metadata-wal-records` instead of `--enable-feature=type-and-unit-labels`.
 
     Feel free to adjust anything in `./manifests/scenarios/` or add your own. You are also welcome to create custom scenarios under `scenarios/`, store them locally or propose to this repo.
     
