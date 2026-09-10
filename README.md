@@ -14,7 +14,14 @@ The general flow looks as follows:
 * You setup your GKE cluster once: `make cluster-setup CLUSTER_NAME=my-prombenchy`
 * Then to start any benchmark run you do `make start CLUSTER_NAME=my-prombenchy BENCH_NAME=<name of benchmark, also k8s namespace> SCENARIO=./manifests/scenarios/gmp`. This will setup node-pool and your collector (e.g. as daemon set or separate pod - up to you, as long as you do correct node section!)
 
-    You can start as many scenarios as you want on the single cluster (make sure to use unique `BENCH_NAME` though!). The scenario is a path to the "collector" manifest, so anything that will scrape `./manifests/load/avalanche.exampletarget.yaml`. Feel free to adjust anything in `./manifests/scenarios/` or add your own. You are also welcome to create custom scenarios under `scenarios/`, store them locally or propose to this repo.
+    You can start as many scenarios as you want on the single cluster (make sure to use unique `BENCH_NAME` though!). The scenario is a path to the "collector" manifest, so anything that will scrape `./manifests/load/avalanche.exampletarget.yaml`. Available scenarios in `./manifests/scenarios/`:
+    * `gmp`: Prometheus running with Google Managed Prometheus engine exporting to Google Cloud Monitoring.
+    * `gmp-otel`: OpenTelemetry Collector (`otelcol-contrib`) scraping targets and exporting to GCM using `googlemanagedprometheus` exporter.
+    * `otel-otlp` (alias `gmp-otlp`): OpenTelemetry Collector (`otelcol-google`) scraping targets and receiving OTLP, exporting directly via OTLP gRPC to Google Cloud Telemetry API (`telemetry.googleapis.com:443`).
+    * `prom-prw` (alias `prom-rw`): Upstream OSS Prometheus using Prometheus Remote Write v2 (`io.prometheus.write.v2.Request`) with `google_iam` authentication to Google Cloud Monitoring.
+    * `prom-rw-m` (alias `prom-prw-m`): Same as `prom-prw`, but uses `--enable-feature=metadata-wal-records` instead of `--enable-feature=type-and-unit-labels`.
+
+    Feel free to adjust anything in `./manifests/scenarios/` or add your own. You are also welcome to create custom scenarios under `scenarios/`, store them locally or propose to this repo.
     
     `prombenchy` setup uses separate meta-monitoring containers in `core` namespace:
     * Separate Prometheus for gathering metrics about core resources and collectors (available locally, but also sends all to GCM). Make sure your pod has `app=collector` label and relevant port name has `-ins` suffix, to be scraped by this core Prometheus. There is also a dashboard you can apply to GCM in `./dashboards/`.
@@ -28,9 +35,6 @@ See [tools/mtypes](./tools/mtypes) to learn about a small CLI for gathering stat
 
 ## TODOs
 
-* [ ] All scenarios are GMP aware, so they send data to GCM. In the future, we plan to also benchmark remote-write or OTLP, but proper test reivers would need to be added. Help welcome!
-* [ ] Probably Go code for scripts instead of bash, for reliability.
-* [ ] Cleanup svc account permissions on stopped scenarios.
 * [ ] Make config-reloader work with otel-collector and parca (annoying to delete pod after config changes).
 * [ ] Public auth-ed IPs for accessing parca and prometheus details?
 

@@ -1,0 +1,441 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: collector
+  namespace: {{ .Env.BENCH_NAME }}
+  annotations:
+    iam.gke.io/gcp-service-account: gmp-prombench@{{ .Env.PROJECT_ID }}.iam.gserviceaccount.com
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Env.BENCH_NAME }}:collector
+rules:
+- resources:
+  - endpoints
+  - nodes
+  - nodes/metrics
+  - pods
+  - services
+  - namespaces
+  apiGroups: [""]
+  verbs: ["get", "list", "watch"]
+- resources:
+  - configmaps
+  apiGroups: [""]
+  verbs: ["get"]
+- resources:
+  - replicasets
+  apiGroups: ["apps", "extensions"]
+  verbs: ["get", "list", "watch"]
+- nonResourceURLs: ["/metrics"]
+  verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Env.BENCH_NAME }}:collector
+roleRef:
+  name: {{ .Env.BENCH_NAME }}:collector
+  kind: ClusterRole
+  apiGroup: rbac.authorization.k8s.io
+subjects:
+- name: collector
+  namespace: {{ .Env.BENCH_NAME }}
+  kind: ServiceAccount
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: collector
+  namespace: {{ .Env.BENCH_NAME }}
+  labels:
+    app: collector
+    benchmark: {{ .Env.BENCH_NAME }}
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: collector
+  ports:
+  - name: otlp-grpc
+    port: 4317
+    targetPort: 4317
+    protocol: TCP
+  - name: otlp-http
+    port: 4318
+    targetPort: 4318
+    protocol: TCP
+  - name: otel-ins
+    port: 8888
+    targetPort: 8888
+    protocol: TCP
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: collector-config
+  namespace: {{ .Env.BENCH_NAME }}
+data:
+  collector.yaml: |
+    exporters:
+      # The otlp exporter is used to send telemetry (logs, metrics, traces) to GCP Telemetry API using OTLP gRPC
+      otlp:
+        endpoint: telemetry.googleapis.com:443
+        balancer_name: pick_first
+        auth:
+          authenticator: googleclientauth
+
+    extensions:
+      health_check:
+        endpoint: ${env:MY_POD_IP}:13133
+      googleclientauth:
+
+    processors:
+      batch:
+        send_batch_max_size: 200
+        send_batch_size: 200
+        timeout: 5s
+
+      k8sattributes:
+        extract:
+          metadata:
+          - k8s.namespace.name
+          - k8s.deployment.name
+          - k8s.statefulset.name
+          - k8s.daemonset.name
+          - k8s.cronjob.name
+          - k8s.job.name
+          - k8s.replicaset.name
+          - k8s.node.name
+          - k8s.pod.name
+          - k8s.pod.uid
+          - k8s.pod.start_time
+        passthrough: false
+        pod_association:
+        - sources:
+          - from: resource_attribute
+            name: k8s.pod.ip
+        - sources:
+          - from: resource_attribute
+            name: k8s.pod.uid
+        - sources:
+          - from: connection
+
+      memory_limiter:
+        check_interval: 1s
+        limit_percentage: 65
+        spike_limit_percentage: 20
+      resourcedetection:
+        detectors: [gcp]
+        timeout: 10s
+
+      transform/collision:
+        metric_statements:
+        - context: datapoint
+          statements:
+          - set(attributes["exported_location"], attributes["location"])
+          - delete_key(attributes, "location")
+          - set(attributes["exported_cluster"], attributes["cluster"])
+          - delete_key(attributes, "cluster")
+          - set(attributes["exported_namespace"], attributes["namespace"])
+          - delete_key(attributes, "namespace")
+          - set(attributes["exported_job"], attributes["job"])
+          - delete_key(attributes, "job")
+          - set(attributes["exported_instance"], attributes["instance"])
+          - delete_key(attributes, "instance")
+          - set(attributes["exported_project_id"], attributes["project_id"])
+          - delete_key(attributes, "project_id")
+
+      # The relative ordering of statements between ReplicaSet & Deployment and Job & CronJob are important.
+      # The ordering of these controllers is decided based on the k8s controller documentation available at
+      # https://kubernetes.io/docs/concepts/workloads/controllers.
+      # The relative ordering of the other controllers in this list is inconsequential since they directly
+      # create pods.
+      transform/aco-gke:
+        metric_statements:
+        - context: datapoint
+          statements:
+          - set(attributes["top_level_controller_type"], "ReplicaSet") where resource.attributes["k8s.replicaset.name"] != nil
+          - set(attributes["top_level_controller_name"], resource.attributes["k8s.replicaset.name"]) where resource.attributes["k8s.replicaset.name"] != nil
+          - set(attributes["top_level_controller_type"], "Deployment") where resource.attributes["k8s.deployment.name"] != nil
+          - set(attributes["top_level_controller_name"], resource.attributes["k8s.deployment.name"]) where resource.attributes["k8s.deployment.name"] != nil
+          - set(attributes["top_level_controller_type"], "DaemonSet") where resource.attributes["k8s.daemonset.name"] != nil
+          - set(attributes["top_level_controller_name"], resource.attributes["k8s.daemonset.name"]) where resource.attributes["k8s.daemonset.name"] != nil
+          - set(attributes["top_level_controller_type"], "StatefulSet") where resource.attributes["k8s.statefulset.name"] != nil
+          - set(attributes["top_level_controller_name"], resource.attributes["k8s.statefulset.name"]) where resource.attributes["k8s.statefulset.name"] != nil
+          - set(attributes["top_level_controller_type"], "Job") where resource.attributes["k8s.job.name"] != nil
+          - set(attributes["top_level_controller_name"], resource.attributes["k8s.job.name"]) where resource.attributes["k8s.job.name"] != nil
+          - set(attributes["top_level_controller_type"], "CronJob") where resource.attributes["k8s.cronjob.name"] != nil
+          - set(attributes["top_level_controller_name"], resource.attributes["k8s.cronjob.name"]) where resource.attributes["k8s.cronjob.name"] != nil
+
+      # For each Prometheus unknown-typed metric, which is a gauge, create a counter that is an exact copy of this metric.
+      # The GCP OTLP endpoint will add appropriate suffixes for the counter and gauge.
+      transform/unknown-counter:
+        metric_statements:
+        - context: metric
+          statements:
+          # Copy the unknown metric, but add a suffix so we can distinguish the copy from the original.
+          - copy_metric(Concat([metric.name, "unknowncounter"], ":")) where metric.metadata["prometheus.type"] == "unknown" and not HasSuffix(metric.name, ":unknowncounter")
+          # Change the copy to a monotonic, cumulative sum.
+          - convert_gauge_to_sum("cumulative", true) where HasSuffix(metric.name, ":unknowncounter")
+          # Delete the extra suffix once we are done.
+          - set(metric.name, Substring(metric.name, 0, Len(metric.name)-Len(":unknowncounter"))) where HasSuffix(metric.name, ":unknowncounter")
+
+      transform/otlp/preserve_instrumentation_source_version:
+        error_mode: ignore
+        log_statements:
+        - context: log
+          statements:
+          - set(attributes["instrumentation_source"], instrumentation_scope.name) where instrumentation_scope.name != ""
+          - set(attributes["instrumentation_version"], instrumentation_scope.version) where instrumentation_scope.version != ""
+
+      transform/otlp/copy_service_resource_labels:
+        error_mode: ignore
+        log_statements:
+        - context: log
+          statements:
+          - set(attributes["service.name"], resource.attributes["service.name"]) where resource.attributes["service.name"] != nil
+          - set(attributes["service.namespace"], resource.attributes["service.namespace"]) where resource.attributes["service.namespace"] != nil
+          - set(attributes["service.instance.id"], resource.attributes["service.instance.id"]) where resource.attributes["service.instance.id"] != nil
+
+      # When sending telemetry to the GCP OTLP endpoint, the gcp.project_id resource attribute is required to be set to your project ID.
+      resource/gcp_project_id:
+        attributes:
+        - action: insert
+          key: gcp.project_id
+          value: {{ .Env.PROJECT_ID }}
+
+      # The metricstarttime processor is important to include if you are using the prometheus receiver to ensure the start time is set properly.
+      # It is a no-op otherwise.
+      metricstarttime:
+        strategy: subtract_initial_point
+
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: ${env:MY_POD_IP}:4317
+          http:
+            cors:
+              allowed_origins:
+              - http://*
+              - https://*
+            endpoint: ${env:MY_POD_IP}:4318
+      prometheus/bench:
+        config:
+          scrape_configs:
+          - job_name: PodMonitoring/gmp/avalanche/metrics
+            honor_timestamps: false
+            scrape_interval: 15s
+            scrape_timeout: 15s
+            metrics_path: /metrics
+            follow_redirects: true
+            enable_http2: true
+            relabel_configs:
+            - source_labels: [__meta_kubernetes_namespace]
+              regex: {{ .Env.BENCH_NAME }}
+              action: keep
+            - source_labels: [__meta_kubernetes_pod_label_app]
+              regex: avalanche
+              action: keep
+            - source_labels: [__meta_kubernetes_pod_name]
+              target_label: pod
+              action: replace
+            - source_labels: [__meta_kubernetes_pod_container_name]
+              target_label: container
+              action: replace
+            - source_labels: [__meta_kubernetes_namespace]
+              target_label: namespace
+              action: replace
+            - target_label: job
+              replacement: avalanche
+              action: replace
+            - source_labels: [__meta_kubernetes_pod_phase]
+              regex: (Failed|Succeeded)
+              action: drop
+            - target_label: project_id
+              replacement: {{ .Env.PROJECT_ID }}
+              action: replace
+            - target_label: location
+              replacement: {{ .Env.ZONE }}
+              action: replace
+            - target_label: cluster
+              replacement: {{ .Env.CLUSTER_NAME }}
+              action: replace
+            - source_labels: [__meta_kubernetes_pod_name]
+              target_label: __tmp_instance
+              action: replace
+            - source_labels: [__meta_kubernetes_pod_controller_kind, __meta_kubernetes_pod_node_name]
+              regex: DaemonSet;(.*)
+              target_label: __tmp_instance
+              replacement: $$1
+              action: replace
+            - source_labels: [__meta_kubernetes_pod_container_port_name]
+              regex: metrics
+              action: keep
+            - source_labels: [__tmp_instance, __meta_kubernetes_pod_container_port_name]
+              regex: (.+);(.+)
+              target_label: instance
+              replacement: $$1:$$2
+              action: replace
+            kubernetes_sd_configs:
+            - role: pod
+              kubeconfig_file: ""
+              follow_redirects: true
+              enable_http2: true
+              selectors:
+              - role: pod
+                field: spec.nodeName=${env:NODE_NAME}
+
+    service:
+      extensions:
+      - health_check
+      - googleclientauth
+      pipelines:
+        logs:
+          receivers:
+          - otlp
+          processors:
+          - k8sattributes
+          - memory_limiter
+          - resourcedetection
+          - resource/gcp_project_id
+          - transform/otlp/preserve_instrumentation_source_version
+          - transform/otlp/copy_service_resource_labels
+          - batch
+          exporters:
+          - otlp
+        metrics/otlp:
+          receivers:
+          - otlp
+          - prometheus/bench
+          processors:
+          - k8sattributes
+          - memory_limiter
+          - resourcedetection
+          - resource/gcp_project_id
+          - transform/collision
+          - transform/aco-gke
+          - transform/unknown-counter
+          - metricstarttime
+          - batch
+          exporters:
+          - otlp
+        traces:
+          receivers:
+          - otlp
+          processors:
+          - k8sattributes
+          - memory_limiter
+          - resourcedetection
+          - resource/gcp_project_id
+          - batch
+          exporters:
+          - otlp
+      telemetry:
+        logs:
+          encoding: json
+        metrics:
+          readers:
+          - pull:
+              exporter:
+                prometheus:
+                  host: "0.0.0.0"
+                  port: 8888
+                  without_units: true
+                  without_type_suffix: true
+                  without_scope_info: true
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: collector
+  namespace: {{ .Env.BENCH_NAME }}
+  labels:
+    benchmark: {{ .Env.BENCH_NAME }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: collector
+  template:
+    metadata:
+      labels:
+        app: collector
+        app.kubernetes.io/name: collector
+        benchmark: {{ .Env.BENCH_NAME }}
+      annotations:
+        cluster-autoscaler.kubernetes.io/safe-to-evict: "true"
+    spec:
+      serviceAccountName: collector
+      automountServiceAccountToken: true
+      containers:
+      - name: otel-collector
+        image: us-docker.pkg.dev/cloud-ops-agents-artifacts/google-cloud-opentelemetry-collector/otelcol-google:0.131.0
+        args:
+          - "--config=/conf/collector.yaml"
+          - "--feature-gates=exporter.googlemanagedprometheus.intToDouble,receiver.prometheusreceiver.RemoveStartTimeAdjustment"
+        env:
+          - name: MY_POD_IP
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: status.podIP
+          - name: NODE_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: spec.nodeName
+        volumeMounts:
+        - name: collector-config
+          mountPath: /conf
+        ports:
+        - name: otel-ins # -ins, tells core Prometheus to scrape it.
+          containerPort: 8888
+        - name: otlp-grpc
+          containerPort: 4317
+        - name: otlp-http
+          containerPort: 4318
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 13133
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - all
+          privileged: false
+      volumes:
+      - name: collector-config
+        configMap:
+          name: collector-config
+          items:
+          - key: collector.yaml
+            path: collector.yaml
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: kubernetes.io/arch
+                operator: In
+                values:
+                - arm64
+                - amd64
+              - key: kubernetes.io/os
+                operator: In
+                values:
+                - linux
+      tolerations:
+      - effect: NoExecute
+        operator: Exists
+      - effect: NoSchedule
+        operator: Exists
+      securityContext:
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      nodeSelector:
+        role: {{ .Env.BENCH_NAME }}-work

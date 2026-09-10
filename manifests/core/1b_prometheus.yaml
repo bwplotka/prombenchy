@@ -92,6 +92,10 @@ data:
         replacement: $1
 
     - job_name: pods
+      scrape_protocols:
+      - PrometheusText0.0.4
+      - OpenMetricsText1.0.0
+      - OpenMetricsText0.0.1
       tls_config:
         ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
         insecure_skip_verify: true
@@ -163,7 +167,7 @@ spec:
           privileged: false
       containers:
       - name: config-reloader
-        image: gke.gcr.io/prometheus-engine/config-reloader:v0.9.0-gke.1
+        image: gke.gcr.io/prometheus-engine/config-reloader:v0.19.0-gke.2
         args:
         - --config-file=/prometheus/config/config.yaml
         - --config-file-output=/prometheus/config_out/config.yaml
@@ -184,7 +188,7 @@ spec:
           mountPath: /prometheus/config
         - name: config-out
           mountPath: /prometheus/config_out
-      - image: gke.gcr.io/prometheus-engine/prometheus:v2.45.3-gmp.1-gke.0
+      - image: gke.gcr.io/prometheus-engine/prometheus:v3.13.0-gmp.1-gke.0
         args:
         - --config.file=/prometheus/config_out/config.yaml
         - --storage.tsdb.path=/data

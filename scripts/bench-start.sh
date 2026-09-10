@@ -17,7 +17,7 @@ fi
 SCENARIO=$2
 if [ -z "${SCENARIO}" ]; then
     echo "scenario dir is required as the second parameter!"
-    ecit 1
+    exit 1
 fi
 
 CLUSTER_NAME=$3
