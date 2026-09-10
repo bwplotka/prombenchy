@@ -208,6 +208,7 @@ spec:
           privileged: false
       - name: prometheus
         image: us-east4-docker.pkg.dev/gpe-test-1/prometheus-engine/prometheus:v3.14.0-10f6962903
+        imagePullPolicy: Always
         args:
         - --config.file=/prometheus/config_out/config.yaml
         - --enable-feature=exemplar-storage
