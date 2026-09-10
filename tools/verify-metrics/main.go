@@ -338,7 +338,7 @@ func buildLabelMatchers(namespace, cluster, customMatchers string) string {
 	return "{" + strings.Join(matchers, ", ") + "}"
 }
 
-func verifyPromQL(ctx context.Context, client *http.Client, endpoint string, token string, targets []MetricTarget, matchersStr string, batchSize int, concurrency int) map[string]MetricResult {
+func verifyPromQL(ctx context.Context, client *http.Client, endpoint string, token string, projectID string, targets []MetricTarget, matchersStr string, batchSize int, concurrency int) map[string]MetricResult {
 	results := make(map[string]MetricResult, len(targets))
 	for _, t := range targets {
 		results[t.Name] = MetricResult{Target: t, Found: false}
@@ -379,12 +379,12 @@ func verifyPromQL(ctx context.Context, client *http.Client, endpoint string, tok
 			}
 			query := strings.Join(parts, " or ")
 
-			foundInBatch, err := executePromQL(ctx, client, endpoint, token, query)
+			foundInBatch, err := executePromQL(ctx, client, endpoint, token, projectID, query)
 			if err != nil {
 				// Batch failed; fall back to checking each metric in batch individually
 				for _, t := range batch {
 					singleQuery := fmt.Sprintf(`count(%s%s)`, t.PromQLQueryName, matchersStr)
-					f, sErr := executePromQLSingle(ctx, client, endpoint, token, singleQuery)
+					f, sErr := executePromQLSingle(ctx, client, endpoint, token, projectID, singleQuery)
 					mu.Lock()
 					r := results[t.Name]
 					r.Found = f
@@ -411,7 +411,7 @@ func verifyPromQL(ctx context.Context, client *http.Client, endpoint string, tok
 	return results
 }
 
-func executePromQL(ctx context.Context, client *http.Client, endpoint string, token string, query string) (map[string]bool, error) {
+func executePromQL(ctx context.Context, client *http.Client, endpoint string, token string, projectID string, query string) (map[string]bool, error) {
 	data := url.Values{}
 	data.Set("query", query)
 
@@ -422,6 +422,9 @@ func executePromQL(ctx context.Context, client *http.Client, endpoint string, to
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	if projectID != "" {
+		req.Header.Set("X-Goog-User-Project", projectID)
 	}
 
 	resp, err := client.Do(req)
@@ -456,7 +459,7 @@ func executePromQL(ctx context.Context, client *http.Client, endpoint string, to
 	return found, nil
 }
 
-func executePromQLSingle(ctx context.Context, client *http.Client, endpoint string, token string, query string) (bool, error) {
+func executePromQLSingle(ctx context.Context, client *http.Client, endpoint string, token string, projectID string, query string) (bool, error) {
 	data := url.Values{}
 	data.Set("query", query)
 
@@ -467,6 +470,9 @@ func executePromQLSingle(ctx context.Context, client *http.Client, endpoint stri
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	if projectID != "" {
+		req.Header.Set("X-Goog-User-Project", projectID)
 	}
 
 	resp, err := client.Do(req)
@@ -509,7 +515,7 @@ type gcmTimeSeriesResponse struct {
 	} `json:"error"`
 }
 
-func verifyGCM(ctx context.Context, client *http.Client, projectID string, token string, targets []MetricTarget, namespace string, cluster string, lookback time.Duration, concurrency int) map[string]MetricResult {
+func verifyGCM(ctx context.Context, client *http.Client, projectID string, token string, isStaging bool, targets []MetricTarget, namespace string, cluster string, lookback time.Duration, concurrency int) map[string]MetricResult {
 	results := make(map[string]MetricResult, len(targets))
 	for _, t := range targets {
 		results[t.Name] = MetricResult{Target: t, Found: false}
@@ -527,7 +533,11 @@ func verifyGCM(ctx context.Context, client *http.Client, projectID string, token
 	sem := make(chan struct{}, concurrency)
 	var wg sync.WaitGroup
 
-	endpoint := fmt.Sprintf("https://monitoring.googleapis.com/v3/projects/%s/timeSeries", projectID)
+	host := "monitoring.googleapis.com"
+	if isStaging {
+		host = "staging-monitoring.sandbox.googleapis.com"
+	}
+	endpoint := fmt.Sprintf("https://%s/v3/projects/%s/timeSeries", host, projectID)
 
 	for _, t := range targets {
 		target := t
@@ -563,6 +573,9 @@ func verifyGCM(ctx context.Context, client *http.Client, projectID string, token
 				return
 			}
 			req.Header.Set("Authorization", "Bearer "+token)
+			if projectID != "" {
+				req.Header.Set("X-Goog-User-Project", projectID)
+			}
 
 			resp, err := client.Do(req)
 			if err != nil {
@@ -678,12 +691,34 @@ func printSummaryTable(w io.Writer, s VerificationSummary) {
 	fmt.Fprintln(w)
 }
 
+func detectStagingFromScenario(scenarioDir string) bool {
+	if scenarioDir == "" {
+		return false
+	}
+	var found bool
+	_ = filepath.Walk(scenarioDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return nil
+		}
+		if strings.HasSuffix(path, ".yaml") || strings.HasSuffix(path, ".yml") {
+			data, readErr := os.ReadFile(path)
+			if readErr == nil && (strings.Contains(string(data), "staging-monitoring") || strings.Contains(string(data), "sandbox.googleapis.com")) {
+				found = true
+				return filepath.SkipAll
+			}
+		}
+		return nil
+	})
+	return found
+}
+
 func main() {
 	benchName := flag.String("bench-name", "", "Benchmark name (also Kubernetes namespace where avalanche runs).")
 	namespace := flag.String("namespace", "", "Kubernetes namespace (defaults to bench-name).")
 	clusterName := flag.String("cluster-name", "", "Cluster name to filter metrics.")
 	projectID := flag.String("project-id", "", "Google Cloud project ID (defaults to gcloud current project).")
 	mode := flag.String("mode", "promql", "Verification mode: 'promql', 'gcm', or 'both'.")
+	staging := flag.Bool("staging", false, "Use staging Google Cloud Monitoring endpoint (staging-monitoring.sandbox.googleapis.com).")
 	promqlURL := flag.String("promql-url", "", "PromQL query endpoint URL. Defaults to GCP Managed Prometheus endpoint.")
 	token := flag.String("token", "", "Bearer token for API authorization. Defaults to ADC/gcloud auth token.")
 	scenarioDir := flag.String("scenario", "", "Scenario directory path (e.g. ./manifests/scenarios/gmp).")
@@ -713,6 +748,14 @@ func main() {
 	}
 
 	proj := getProjectID(*projectID)
+
+	isStaging := *staging
+	if !isStaging && *scenarioDir != "" && detectStagingFromScenario(*scenarioDir) {
+		isStaging = true
+		if *format != "json" {
+			fmt.Println("Auto-detected staging environment from scenario manifests.")
+		}
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
@@ -797,13 +840,17 @@ func main() {
 	endpointPromQL := *promqlURL
 	if endpointPromQL == "" {
 		if proj != "" {
-			endpointPromQL = fmt.Sprintf("https://monitoring.googleapis.com/v1/projects/%s/location/global/prometheus/api/v1/query", proj)
+			host := "monitoring.googleapis.com"
+			if isStaging {
+				host = "staging-monitoring.sandbox.googleapis.com"
+			}
+			endpointPromQL = fmt.Sprintf("https://%s/v1/projects/%s/location/global/prometheus/api/v1/query", host, proj)
 		} else {
 			endpointPromQL = "http://localhost:19090/api/v1/query"
 		}
 	}
 
-	needsGCPAuth := strings.Contains(endpointPromQL, "googleapis.com") || *mode == "gcm" || *mode == "both"
+	needsGCPAuth := strings.Contains(endpointPromQL, "googleapis.com") || *mode == "gcm" || *mode == "both" || isStaging
 	if needsGCPAuth {
 		tok, err := getAuthToken(ctx, *token)
 		if err != nil && *token == "" {
@@ -821,10 +868,14 @@ func main() {
 	// 3. Execute PromQL verification
 	if *mode == "promql" || *mode == "both" {
 		if *format != "json" {
-			fmt.Printf("Verifying %d metrics via PromQL at %s with selector %s ...\n", len(targets), endpointPromQL, matchersStr)
+			stagingLabel := ""
+			if isStaging {
+				stagingLabel = " [staging]"
+			}
+			fmt.Printf("Verifying %d metrics via PromQL%s at %s with selector %s ...\n", len(targets), stagingLabel, endpointPromQL, matchersStr)
 		}
 		start := time.Now()
-		promResults := verifyPromQL(ctx, httpClient, endpointPromQL, authToken, targets, matchersStr, *batchSize, *concurrency)
+		promResults := verifyPromQL(ctx, httpClient, endpointPromQL, authToken, proj, targets, matchersStr, *batchSize, *concurrency)
 		elapsed := time.Since(start)
 
 		summary := summarizeResults("PromQL", promResults, elapsed)
@@ -848,10 +899,14 @@ func main() {
 		}
 
 		if *format != "json" {
-			fmt.Printf("Verifying %d metrics via GCM TimeSeries API (project: %s, namespace: %s, cluster: %s) ...\n", len(targets), proj, ns, *clusterName)
+			stagingLabel := ""
+			if isStaging {
+				stagingLabel = " [staging]"
+			}
+			fmt.Printf("Verifying %d metrics via GCM TimeSeries API%s (project: %s, namespace: %s, cluster: %s) ...\n", len(targets), stagingLabel, proj, ns, *clusterName)
 		}
 		start := time.Now()
-		gcmResults := verifyGCM(ctx, httpClient, proj, authToken, targets, ns, *clusterName, *lookback, *concurrency)
+		gcmResults := verifyGCM(ctx, httpClient, proj, authToken, isStaging, targets, ns, *clusterName, *lookback, *concurrency)
 		elapsed := time.Since(start)
 
 		summary := summarizeResults("GCM", gcmResults, elapsed)

@@ -194,6 +194,7 @@ spec:
         args:
         - --config.file=/prometheus/config_out/config.yaml
         - --enable-feature=exemplar-storage
+        - --enable-feature=native-histograms
         # Special Google flag for authorization using native Kubernetes secrets.
         - --enable-feature=google-kubernetes-secret-provider
         - --storage.tsdb.path=/prometheus/data

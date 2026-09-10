@@ -188,3 +188,16 @@ func TestSummarizeAndPrintTable(t *testing.T) {
 		t.Errorf("expected output to list missing counter_0, got:\n%s", out)
 	}
 }
+
+func TestDetectStagingFromScenario(t *testing.T) {
+	// Test against real scenario prom-rw which contains staging-monitoring
+	if !detectStagingFromScenario("../../manifests/scenarios/prom-rw") {
+		t.Errorf("expected manifests/scenarios/prom-rw to be detected as staging")
+	}
+
+	// Test against gmp which does not contain staging-monitoring
+	if detectStagingFromScenario("../../manifests/scenarios/gmp") {
+		t.Errorf("expected manifests/scenarios/gmp NOT to be detected as staging")
+	}
+}
+

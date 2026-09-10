@@ -26,8 +26,26 @@ go run ./tools/verify-metrics/main.go -bench-name=gmp -cluster-name=bwplotka-rw 
 # Verify via custom local Prometheus endpoint
 go run ./tools/verify-metrics/main.go -bench-name=gmp -promql-url=http://localhost:19090/api/v1/query
 
+# Verify against staging endpoint (staging-monitoring.sandbox.googleapis.com)
+go run ./tools/verify-metrics/main.go -bench-name=prom-rw -scenario=./manifests/scenarios/prom-rw -staging=true
+
 # Output structured JSON
 go run ./tools/verify-metrics/main.go -bench-name=gmp -cluster-name=bwplotka-rw -format=json
+```
+
+### Staging Verification
+
+For scenarios that write to Google Cloud Monitoring sandbox/staging (e.g. `staging-monitoring.sandbox.googleapis.com`):
+- Pass `-staging=true` (or `STAGING=true` via Makefile)
+- Staging is also **automatically detected** if `-scenario` points to a directory containing manifests referencing `staging-monitoring` or `sandbox.googleapis.com`.
+- Automatically attaches `X-Goog-User-Project` header for quota validation.
+
+```bash
+# Via Makefile
+make verify BENCH_NAME=prom-rw SCENARIO=./manifests/scenarios/prom-rw CLUSTER_NAME=bwplotka-rw STAGING=true
+
+# Via shell script
+bash ./scripts/bench-verify.sh prom-rw ./manifests/scenarios/prom-rw bwplotka-rw promql true
 ```
 
 ### Options
@@ -38,7 +56,8 @@ go run ./tools/verify-metrics/main.go -bench-name=gmp -cluster-name=bwplotka-rw 
 | `-cluster-name` | GKE cluster name filter | `""` |
 | `-project-id` | GCP project ID | Current gcloud project |
 | `-mode` | Query mode: `promql`, `gcm`, or `both` | `promql` |
-| `-promql-url` | PromQL query endpoint | GMP PromQL API URL |
+| `-staging` | Use staging GCM endpoint (`staging-monitoring.sandbox.googleapis.com`) | Auto-detected from scenario, or `false` |
+| `-promql-url` | PromQL query endpoint | GMP PromQL API URL (prod or staging) |
 | `-token` | Bearer token for API | Auto-acquired via ADC/gcloud |
 | `-load-manifest` | Path to avalanche manifest | `./manifests/load/avalanche.exampletarget.yaml` |
 | `-format` | Output format (`table` or `json`) | `table` |

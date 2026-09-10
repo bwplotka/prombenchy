@@ -61,6 +61,12 @@ data:
           honor_timestamps: false
           scrape_interval: 15s
           scrape_timeout: 15s
+          scrape_protocols:
+          - PrometheusProto
+          - OpenMetricsText1.0.0
+          - OpenMetricsText0.0.1
+          - PrometheusText0.0.4
+          scrape_native_histograms: true
           metrics_path: /metrics
           follow_redirects: true
           enable_http2: true

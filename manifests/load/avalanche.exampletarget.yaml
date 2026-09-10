@@ -24,16 +24,16 @@ spec:
       - name: avalanche
         image: gcr.io/gpe-test-1/avalanche:v0.6.0-main-bw6 #quay.io/prometheuscommunity/avalanche:main
         args:
-        # Aim for 10k series target with realistic distribution of types.
+        # Aim for 20k series target with realistic distribution of types and native histograms.
         # Captured exampleprometheustarget.txt from an example Prometheus /metric page.
         # Then generated (and adjusted a bit) below flags using:
-        # cd tools/mtypes && cat ../../manifests/load/exampleprometheustarget.txt | go run main.go --avalanche-flags-for-adjusted-series=10000
-        - "--gauge-metric-count=158"
-        - "--counter-metric-count=280"
-        - "--histogram-metric-count=28"
+        # cd tools/mtypes && cat ../../manifests/load/exampleprometheustarget.txt | go run main.go --avalanche-flags-for-adjusted-series=20000
+        - "--gauge-metric-count=316"
+        - "--counter-metric-count=560"
+        - "--histogram-metric-count=56"
         - "--histogram-metric-bucket-count=10" # Does not count +Inf
-        - "--native-histogram-metric-count=0"
-        - "--summary-metric-count=48" # One metric gives 2 series.
+        - "--native-histogram-metric-count=56"
+        - "--summary-metric-count=96" # One metric gives 2 series.
         - "--summary-metric-objective-count=2" # One metric gives 2 series.
         - "--series-count=10"
         - "--value-interval=300" # Changes values every 5m

@@ -25,7 +25,7 @@ The general flow looks as follows:
     
     `prombenchy` setup uses separate meta-monitoring containers in `core` namespace:
     * Separate Prometheus for gathering metrics about core resources and collectors (available locally, but also sends all to GCM). Make sure your pod has `app=collector` label and relevant port name has `-ins` suffix, to be scraped by this core Prometheus. There is also a dashboard you can apply to GCM in `./dashboards/`.
-      * Parca profiling agent scraping (30s interval) pods with `app=collector` for Go `pprof` endpoints in the default paths. Currently you need to port-forward 7070 from the pod to access profiles: `kubectl -n core port-forward pod/<parca-pod-name> 7070`.
+      * Parca profiling agent scraping (30s interval) pods with `app=collector` (targeting ports named `prom-ins` or `pprof`) for Go `pprof` endpoints in the default paths. Currently you need to port-forward 7070 from the pod to access profiles: `kubectl -n core port-forward pod/<parca-pod-name> 7070`.
 
 * `make stop CLUSTER_NAME=my-prombenchy BENCH_NAME=<name of benchmark, also k8s namespace> SCENARIO=./manifests/scenarios/gmp` kill the node-pool and experiment.
 

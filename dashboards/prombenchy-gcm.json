@@ -61,7 +61,7 @@
               "displayHorizontal": false
             }
           },
-          "title": "Collector samples per sec scraped (should be ~10.6k for Prom, and ~5.7 for Otel due to \"adjusted\" logic)",
+          "title": "Collector samples per sec scraped (should be ~21.3k for Prom, and ~11.4k for Otel due to \"adjusted\" logic)",
           "id": ""
         }
       },
@@ -137,7 +137,7 @@
               "displayHorizontal": false
             }
           },
-          "title": "Collector Active Series (should be ~160k with 2x spikes) - only Prometheus",
+          "title": "Collector Active Series (should be ~320k with 2x spikes) - only Prometheus",
           "id": ""
         }
       },
@@ -210,6 +210,19 @@
                 "dimensions": [],
                 "measures": [],
                 "breakdowns": []
+              },
+              {
+                "timeSeriesQuery": {
+                  "prometheusQuery": "count by (namespace)(avalanche_native_histogram_metric_mmmmm_0_0{ series_id=\"1\"})",
+                  "unitOverride": "",
+                  "outputFullDuration": false
+                },
+                "plotType": "LINE",
+                "legendTemplate": "",
+                "targetAxis": "Y1",
+                "dimensions": [],
+                "measures": [],
+                "breakdowns": []
               }
             ],
             "thresholds": [],
@@ -223,7 +236,7 @@
               "displayHorizontal": false
             }
           },
-          "title": "GCM Ingested series for one counter, series_id=1 (should be 16 with 32 staleness spikes)",
+          "title": "GCM Ingested series for one counter / native histogram, series_id=1 (should be 16 with 32 staleness spikes)",
           "id": ""
         }
       },
@@ -563,6 +576,22 @@
                   "prometheusQuery": "sum by (pod, namespace) (rate(otelcol_exporter_sent_metric_points{ job=\"collector\"}[5m]))\n",
                   "unitOverride": ""
                 }
+              },
+              {
+                "plotType": "LINE",
+                "targetAxis": "Y1",
+                "timeSeriesQuery": {
+                  "prometheusQuery": "sum by (pod, namespace) (rate(prometheus_remote_storage_samples_total{ job=\"collector\"}[5m]))\n",
+                  "unitOverride": ""
+                }
+              },
+              {
+                "plotType": "LINE",
+                "targetAxis": "Y1",
+                "timeSeriesQuery": {
+                  "prometheusQuery": "sum by (pod, namespace) (rate(prometheus_remote_storage_histograms_total{ job=\"collector\"}[5m]))\n",
+                  "unitOverride": ""
+                }
               }
             ],
             "thresholds": [],
@@ -615,7 +644,7 @@
     {
       "labelKey": "cluster",
       "templateVariable": "",
-      "stringValue": "bwplotka-prombenchy",
+      "stringValue": "bwplotka-rw",
       "filterType": "RESOURCE_LABEL",
       "valueType": "STRING"
     }

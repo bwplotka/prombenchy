@@ -69,6 +69,10 @@ spec:
     port: 8888
     targetPort: 8888
     protocol: TCP
+  - name: pprof
+    port: 1777
+    targetPort: 1777
+    protocol: TCP
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -89,6 +93,8 @@ data:
       health_check:
         endpoint: ${env:MY_POD_IP}:13133
       googleclientauth:
+      pprof:
+        endpoint: 0.0.0.0:1777
 
     processors:
       batch:
@@ -291,6 +297,7 @@ data:
       extensions:
       - health_check
       - googleclientauth
+      - pprof
       pipelines:
         logs:
           receivers:
@@ -391,6 +398,8 @@ spec:
         ports:
         - name: otel-ins # -ins, tells core Prometheus to scrape it.
           containerPort: 8888
+        - name: pprof
+          containerPort: 1777
         - name: otlp-grpc
           containerPort: 4317
         - name: otlp-http

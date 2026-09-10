@@ -32,7 +32,7 @@ export PROJECT_ID
 export ZONE
 export CLUSTER_NAME
 
-kubectlExpandDelete "./manifests/load/avalanche.yaml"
+kubectlExpandDelete "./manifests/load/avalanche.exampletarget.yaml"
 kubectlExpandDelete "${SCENARIO}"
 
 # n2-highmem-8 -- 8 vCPUs 64 GB

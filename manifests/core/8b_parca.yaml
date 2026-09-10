@@ -12,7 +12,7 @@ data:
           "directory": "/var/lib/parca"
         "type": "FILESYSTEM"
     scrape_configs:
-      - job_name: prometheus
+      - job_name: collector
         scrape_interval: 30s
         scrape_timeout: 40s
         scheme: http
@@ -32,6 +32,9 @@ data:
           - action: keep
             source_labels: [__meta_kubernetes_pod_container_name]
             regex: prometheus|otel-collector
+          - action: keep
+            source_labels: [__meta_kubernetes_pod_container_port_name]
+            regex: prom-ins|pprof
           - action: replace 
             source_labels: [__meta_kubernetes_pod_label_app]
             target_label: job
@@ -44,6 +47,12 @@ data:
           - action: replace
             source_labels: [__meta_kubernetes_pod_container_name]
             target_label: container
+          - action: replace
+            source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+          - action: replace
+            source_labels: [__meta_kubernetes_pod_label_benchmark]
+            target_label: benchmark
 
 ---
 apiVersion: apps/v1

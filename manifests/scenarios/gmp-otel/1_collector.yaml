@@ -90,6 +90,8 @@ spec:
         ports:
         - name: otel-ins # -ins, tells core Prometheus to scrape it.
           containerPort: 8888
+        - name: pprof
+          containerPort: 1777
         readinessProbe:
           httpGet:
             path: /
@@ -149,6 +151,8 @@ data:
     extensions:
       health_check:
         endpoint: ${env:MY_POD_IP}:13133
+      pprof:
+        endpoint: 0.0.0.0:1777
     processors:
       #      resource/bench:
       #        attributes:
@@ -261,6 +265,7 @@ data:
     service:
       extensions:
       - health_check
+      - pprof
       pipelines:
         metrics:
           exporters:
