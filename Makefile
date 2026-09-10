@@ -29,6 +29,13 @@ stop: check-deps ## Start benchmark on the current cluster.
 	@echo "## Stopping benchmark $(BENCH_NAME) with scenario $(SCENARIO)"
 	bash ./scripts/bench-stop.sh $(BENCH_NAME) $(SCENARIO) $(CLUSTER_NAME)
 
+MODE?=promql
+.PHONY: verify
+verify: check-deps ## Verify all metric names are queryable for the scenario.
+	@test -n "$(BENCH_NAME)" || (echo "BENCH_NAME variable is not set, what name for this benchmark you want to verify?" ; exit 1)
+	@echo "## Verifying benchmark $(BENCH_NAME) with scenario $(SCENARIO) (mode: $(MODE))"
+	bash ./scripts/bench-verify.sh "$(BENCH_NAME)" "$(SCENARIO)" "$(CLUSTER_NAME)" "$(MODE)"
+
 .PHONY: cluster-setup
 cluster-setup: check-deps ## Bootstraps the benchmarking GKE cluster.
 	@echo "## Starting/checking cluster"
@@ -46,8 +53,8 @@ GOMODS := $(shell find . -name "go.mod" | grep -v .bingo | xargs dirname)
 .PHONY: test
 test:
 	@for gomod in $(GOMODS); do \
-		cd $$gomod && go test -v ./...; \
-    done
+		(cd $$gomod && go test -v ./...); \
+	done
 
 GOFUMPT = gofumpt
 $(GOFUMPT):
