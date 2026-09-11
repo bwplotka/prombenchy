@@ -239,25 +239,24 @@ func getAuthToken(ctx context.Context, explicitToken string) (string, error) {
 	if envToken := os.Getenv("BEARER_TOKEN"); envToken != "" {
 		return envToken, nil
 	}
-	// Try gcloud auth application-default print-access-token
-	cmd := exec.CommandContext(ctx, "gcloud", "auth", "application-default", "print-access-token")
-	out, err := cmd.Output()
-	if err == nil {
-		tok := strings.TrimSpace(string(out))
-		if tok != "" {
-			return tok, nil
+	// Use gcloud to acquire an OAuth2 auth token for Google Cloud APIs.
+	// Try 'gcloud auth application-default print-access-token' first as it returns a cloud-platform scoped
+	// OAuth2 token suitable for Monitoring & Managed Prometheus APIs.
+	// Fall back to 'gcloud auth print-access-token'.
+	for _, args := range [][]string{
+		{"auth", "application-default", "print-access-token"},
+		{"auth", "print-access-token"},
+	} {
+		cmd := exec.CommandContext(ctx, "gcloud", args...)
+		out, err := cmd.Output()
+		if err == nil {
+			tok := strings.TrimSpace(string(out))
+			if tok != "" {
+				return tok, nil
+			}
 		}
 	}
-	// Fallback to gcloud auth print-access-token
-	cmd = exec.CommandContext(ctx, "gcloud", "auth", "print-access-token")
-	out, err = cmd.Output()
-	if err == nil {
-		tok := strings.TrimSpace(string(out))
-		if tok != "" {
-			return tok, nil
-		}
-	}
-	return "", fmt.Errorf("no GCP auth token found; run 'gcloud auth application-default login' or pass -token")
+	return "", fmt.Errorf("no GCP auth token found via gcloud; run 'gcloud auth application-default login' (or 'gcloud auth login') or pass -token")
 }
 
 func getProjectID(explicitProject string) string {

@@ -58,10 +58,19 @@ bash ./scripts/bench-verify.sh prom-rw ./manifests/scenarios/prom-rw bwplotka-rw
 | `-mode` | Query mode: `promql`, `gcm`, or `both` | `promql` |
 | `-staging` | Use staging GCM endpoint (`staging-monitoring.sandbox.googleapis.com`) | Auto-detected from scenario, or `false` |
 | `-promql-url` | PromQL query endpoint | GMP PromQL API URL (prod or staging) |
-| `-token` | Bearer token for API | Auto-acquired via ADC/gcloud |
+| `-token` | Bearer token for API | Auto-acquired via gcloud auth |
 | `-load-manifest` | Path to avalanche manifest | `./manifests/load/avalanche.exampletarget.yaml` |
 | `-format` | Output format (`table` or `json`) | `table` |
 | `-concurrency` | Concurrent worker count | `20` |
 | `-batch-size` | Metrics per batched PromQL query | `25` |
 | `-timeout` | Overall verification timeout | `60s` |
 | `-lookback` | Lookback interval for GCM time series query | `15m` |
+
+### Authentication
+
+`verify-metrics` automatically uses `gcloud` to authenticate against Google Cloud Monitoring / Managed Prometheus endpoints:
+- Automatically runs `gcloud auth print-access-token` using the active gcloud account.
+- Falls back to `gcloud auth application-default print-access-token` if needed.
+- Accepts explicit token via `-token=<token>` or `BEARER_TOKEN` environment variable.
+- Adds `X-Goog-User-Project` header automatically for quota management.
+

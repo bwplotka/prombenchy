@@ -41,4 +41,8 @@ if [ -n "${PROJECT_ID}" ]; then
   args+=("-project-id=${PROJECT_ID}")
 fi
 
+if [ -n "${TOKEN:-}" ]; then
+  args+=("-token=${TOKEN}")
+fi
+
 go run ./tools/verify-metrics/main.go "${args[@]}"
