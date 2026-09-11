@@ -51,6 +51,7 @@ data:
     global:
       scrape_interval: 2s
       scrape_timeout: 2s
+      convert_classic_histograms_to_nhcb: true
       external_labels:
         collector: {{ .Env.BENCH_NAME }}
         project_id: {{ .Env.PROJECT_ID }}
@@ -67,6 +68,7 @@ data:
           - OpenMetricsText0.0.1
           - PrometheusText0.0.4
           scrape_native_histograms: true
+          convert_classic_histograms_to_nhcb: true
           metrics_path: /metrics
           follow_redirects: true
           enable_http2: true

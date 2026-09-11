@@ -234,6 +234,11 @@ data:
             honor_timestamps: false
             scrape_interval: 15s
             scrape_timeout: 15s
+            scrape_protocols:
+            - PrometheusProto
+            - OpenMetricsText1.0.0
+            - OpenMetricsText0.0.1
+            - PrometheusText0.0.4
             metrics_path: /metrics
             follow_redirects: true
             enable_http2: true
@@ -380,7 +385,7 @@ spec:
         image: us-docker.pkg.dev/cloud-ops-agents-artifacts/google-cloud-opentelemetry-collector/otelcol-google:0.131.0
         args:
           - "--config=/conf/collector.yaml"
-          - "--feature-gates=exporter.googlemanagedprometheus.intToDouble,receiver.prometheusreceiver.RemoveStartTimeAdjustment"
+          - "--feature-gates=exporter.googlemanagedprometheus.intToDouble,receiver.prometheusreceiver.RemoveStartTimeAdjustment,receiver.prometheusreceiver.EnableNativeHistograms"
         env:
           - name: MY_POD_IP
             valueFrom:
