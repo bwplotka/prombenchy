@@ -195,6 +195,11 @@ func TestDetectStagingFromScenario(t *testing.T) {
 		t.Errorf("expected manifests/scenarios/prom-rw to be detected as staging")
 	}
 
+	// Test against prom-rw-nost which also contains staging-monitoring
+	if !detectStagingFromScenario("../../manifests/scenarios/prom-rw-nost") {
+		t.Errorf("expected manifests/scenarios/prom-rw-nost to be detected as staging")
+	}
+
 	// Test against gmp which does not contain staging-monitoring
 	if detectStagingFromScenario("../../manifests/scenarios/gmp") {
 		t.Errorf("expected manifests/scenarios/gmp NOT to be detected as staging")
