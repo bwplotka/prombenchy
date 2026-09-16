@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
+	"math/rand"
 	"net/http"
 	"net/url"
 	"os"
@@ -36,6 +38,13 @@ type MetricTarget struct {
 	Name            string     `json:"name"`
 	PromQLQueryName string     `json:"promql_query_name"`
 	GCMType         string     `json:"gcm_type"`
+}
+
+// promQLSelector returns the `count(<name><matchers>)` expression used to decide
+// whether this target is queryable. Shared by the batched and the single-metric
+// query paths so both always agree on what is being asked.
+func (t MetricTarget) promQLSelector(matchersStr string) string {
+	return fmt.Sprintf("count(%s%s)", t.PromQLQueryName, matchersStr)
 }
 
 type AvalancheConfig struct {
@@ -207,13 +216,18 @@ func GenerateMetrics(cfg AvalancheConfig) []MetricTarget {
 		})
 	}
 
-	// Native Histograms
+	// Native Histograms.
+	//
+	// The current GCM API does not support querying native histograms as such:
+	// an ingested native histogram is a distribution, which the GMP PromQL API
+	// exposes only as <name>_count / _sum / _bucket. Querying the bare family
+	// name always yields an empty result, so _count is the name to verify.
 	for id := 0; id < cfg.NativeHistogramMetricCount; id++ {
 		name := fmt.Sprintf("avalanche_native_histogram_metric_%s_%d_%d", mPrefix, cfg.MetricCycle, id)
 		metrics = append(metrics, MetricTarget{
 			Type:            TypeNativeHistogram,
 			Name:            name,
-			PromQLQueryName: name,
+			PromQLQueryName: fmt.Sprintf("%s_count", name),
 			GCMType:         fmt.Sprintf("prometheus.googleapis.com/%s/histogram", name),
 		})
 	}
@@ -283,20 +297,31 @@ type MetricResult struct {
 }
 
 type VerificationSummary struct {
-	Mode           string                  `json:"mode"`
-	TotalExpected  int                     `json:"total_expected"`
-	TotalFound     int                     `json:"total_found"`
-	TotalMissing   int                     `json:"total_missing"`
+	Mode          string `json:"mode"`
+	TotalExpected int    `json:"total_expected"`
+	TotalFound    int    `json:"total_found"`
+	// TotalMissing counts metrics the backend answered about successfully but
+	// had no data for. These are genuine gaps.
+	TotalMissing int `json:"total_missing"`
+	// TotalErrored counts metrics whose status could not be determined because
+	// the query itself failed (quota exhaustion, timeouts, backend errors).
+	// These are NOT evidence of missing data.
+	TotalErrored   int                     `json:"total_errored"`
 	DurationMs     int64                   `json:"duration_ms"`
 	Passed         bool                    `json:"passed"`
+	Inconclusive   bool                    `json:"inconclusive"`
 	ByType         map[MetricType]TypeStat `json:"by_type"`
 	MissingMetrics []string                `json:"missing_metrics,omitempty"`
+	ErroredMetrics []string                `json:"errored_metrics,omitempty"`
+	// ErrorSamples maps a representative error message to how many metrics hit it.
+	ErrorSamples map[string]int `json:"error_samples,omitempty"`
 }
 
 type TypeStat struct {
 	Expected int `json:"expected"`
 	Found    int `json:"found"`
 	Missing  int `json:"missing"`
+	Errored  int `json:"errored"`
 }
 
 // PromQL response structures
@@ -337,7 +362,93 @@ func buildLabelMatchers(namespace, cluster, customMatchers string) string {
 	return "{" + strings.Join(matchers, ", ") + "}"
 }
 
-func verifyPromQL(ctx context.Context, client *http.Client, endpoint string, token string, projectID string, targets []MetricTarget, matchersStr string, batchSize int, concurrency int) map[string]MetricResult {
+// defaultMaxRetries is the number of additional attempts made for retryable
+// responses (HTTP 429 and 5xx). Managed Prometheus / Cloud Monitoring answer
+// with 429 "Resource has been exhausted" as soon as the read quota is hit, and
+// without retrying those the caller cannot tell quota exhaustion apart from
+// genuinely absent data.
+const defaultMaxRetries = 5
+
+// isRetryableStatus reports whether an HTTP status is worth retrying.
+func isRetryableStatus(code int) bool {
+	return code == http.StatusTooManyRequests || code >= 500
+}
+
+// backoffDelay returns an exponentially growing delay with jitter, capped at 15s.
+func backoffDelay(attempt int) time.Duration {
+	d := time.Duration(500*math.Pow(2, float64(attempt))) * time.Millisecond
+	if d > 15*time.Second {
+		d = 15 * time.Second
+	}
+	// Up to 25% jitter so parallel workers do not retry in lockstep.
+	jitter := time.Duration(rand.Int63n(int64(d/4) + 1))
+	return d + jitter
+}
+
+// doQueryWithRetry POSTs a PromQL query and retries retryable failures with
+// exponential backoff. It returns the response body on success.
+func doQueryWithRetry(ctx context.Context, client *http.Client, endpoint, token, projectID, query string, maxRetries int) ([]byte, error) {
+	data := url.Values{}
+	data.Set("query", query)
+
+	var lastErr error
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			delay := backoffDelay(attempt - 1)
+			select {
+			case <-ctx.Done():
+				return nil, fmt.Errorf("%w (last error: %v)", ctx.Err(), lastErr)
+			case <-time.After(delay):
+			}
+		}
+
+		req, err := http.NewRequestWithContext(ctx, "POST", endpoint, strings.NewReader(data.Encode()))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		if projectID != "" {
+			req.Header.Set("X-Goog-User-Project", projectID)
+		}
+
+		resp, err := client.Do(req)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		body, readErr := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if readErr != nil {
+			lastErr = readErr
+			continue
+		}
+
+		if resp.StatusCode == http.StatusOK {
+			return body, nil
+		}
+
+		lastErr = fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		if !isRetryableStatus(resp.StatusCode) {
+			return nil, lastErr
+		}
+		// Prefer the server's own pacing hint when it provides one.
+		if ra := resp.Header.Get("Retry-After"); ra != "" {
+			if secs, convErr := strconv.Atoi(ra); convErr == nil && secs > 0 {
+				select {
+				case <-ctx.Done():
+					return nil, fmt.Errorf("%w (last error: %v)", ctx.Err(), lastErr)
+				case <-time.After(time.Duration(secs) * time.Second):
+				}
+			}
+		}
+	}
+	return nil, fmt.Errorf("giving up after %d attempts: %w", maxRetries+1, lastErr)
+}
+
+func verifyPromQL(ctx context.Context, client *http.Client, endpoint string, token string, projectID string, targets []MetricTarget, matchersStr string, batchSize int, concurrency int, maxRetries int) map[string]MetricResult {
 	results := make(map[string]MetricResult, len(targets))
 	for _, t := range targets {
 		results[t.Name] = MetricResult{Target: t, Found: false}
@@ -371,24 +482,29 @@ func verifyPromQL(ctx context.Context, client *http.Client, endpoint string, tok
 			defer wg.Done()
 			defer func() { <-sem }()
 
-			// Construct batch query
+			// Construct batch query.
 			var parts []string
 			for _, t := range batch {
-				parts = append(parts, fmt.Sprintf(`label_replace(count(%s%s), "metric", "%s", "", "")`, t.PromQLQueryName, matchersStr, t.Name))
+				parts = append(parts, fmt.Sprintf(`label_replace(%s, "metric", "%s", "", "")`, t.promQLSelector(matchersStr), t.Name))
 			}
 			query := strings.Join(parts, " or ")
 
-			foundInBatch, err := executePromQL(ctx, client, endpoint, token, projectID, query)
+			foundInBatch, err := executePromQL(ctx, client, endpoint, token, projectID, query, maxRetries)
 			if err != nil {
-				// Batch failed; fall back to checking each metric in batch individually
+				// Batch failed; fall back to checking each metric in the batch
+				// individually. A metric is only reported as missing when the
+				// backend answers successfully with an empty result; if the
+				// fallback also fails we record the error so the summary can
+				// report it as inconclusive rather than as missing data.
 				for _, t := range batch {
-					singleQuery := fmt.Sprintf(`count(%s%s)`, t.PromQLQueryName, matchersStr)
-					f, sErr := executePromQLSingle(ctx, client, endpoint, token, projectID, singleQuery)
+					f, sErr := executePromQLSingle(ctx, client, endpoint, token, projectID, t.promQLSelector(matchersStr), maxRetries)
 					mu.Lock()
 					r := results[t.Name]
 					r.Found = f
 					if sErr != nil {
 						r.Err = sErr.Error()
+					} else {
+						r.Err = ""
 					}
 					results[t.Name] = r
 					mu.Unlock()
@@ -400,6 +516,7 @@ func verifyPromQL(ctx context.Context, client *http.Client, endpoint string, tok
 			for _, t := range batch {
 				r := results[t.Name]
 				r.Found = foundInBatch[t.Name]
+				r.Err = ""
 				results[t.Name] = r
 			}
 			mu.Unlock()
@@ -410,35 +527,10 @@ func verifyPromQL(ctx context.Context, client *http.Client, endpoint string, tok
 	return results
 }
 
-func executePromQL(ctx context.Context, client *http.Client, endpoint string, token string, projectID string, query string) (map[string]bool, error) {
-	data := url.Values{}
-	data.Set("query", query)
-
-	req, err := http.NewRequestWithContext(ctx, "POST", endpoint, strings.NewReader(data.Encode()))
+func executePromQL(ctx context.Context, client *http.Client, endpoint string, token string, projectID string, query string, maxRetries int) (map[string]bool, error) {
+	body, err := doQueryWithRetry(ctx, client, endpoint, token, projectID, query, maxRetries)
 	if err != nil {
 		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
-	}
-	if projectID != "" {
-		req.Header.Set("X-Goog-User-Project", projectID)
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
 	}
 
 	var pResp promQLResponse
@@ -458,35 +550,10 @@ func executePromQL(ctx context.Context, client *http.Client, endpoint string, to
 	return found, nil
 }
 
-func executePromQLSingle(ctx context.Context, client *http.Client, endpoint string, token string, projectID string, query string) (bool, error) {
-	data := url.Values{}
-	data.Set("query", query)
-
-	req, err := http.NewRequestWithContext(ctx, "POST", endpoint, strings.NewReader(data.Encode()))
+func executePromQLSingle(ctx context.Context, client *http.Client, endpoint string, token string, projectID string, query string, maxRetries int) (bool, error) {
+	body, err := doQueryWithRetry(ctx, client, endpoint, token, projectID, query, maxRetries)
 	if err != nil {
 		return false, err
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
-	}
-	if projectID != "" {
-		req.Header.Set("X-Goog-User-Project", projectID)
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return false, err
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return false, err
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return false, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
 	}
 
 	var pResp promQLResponse
@@ -498,6 +565,54 @@ func executePromQLSingle(ctx context.Context, client *http.Client, endpoint stri
 	}
 
 	return len(pResp.Data.Result) > 0, nil
+}
+
+// doGetWithRetry issues a GET against a Google Cloud API and retries retryable
+// failures with the same backoff policy as doQueryWithRetry.
+func doGetWithRetry(ctx context.Context, client *http.Client, reqURL, token, projectID string, maxRetries int) ([]byte, error) {
+	var lastErr error
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return nil, fmt.Errorf("%w (last error: %v)", ctx.Err(), lastErr)
+			case <-time.After(backoffDelay(attempt - 1)):
+			}
+		}
+
+		req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
+		if err != nil {
+			return nil, err
+		}
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		if projectID != "" {
+			req.Header.Set("X-Goog-User-Project", projectID)
+		}
+
+		resp, err := client.Do(req)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		body, readErr := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if readErr != nil {
+			lastErr = readErr
+			continue
+		}
+
+		if resp.StatusCode == http.StatusOK {
+			return body, nil
+		}
+
+		lastErr = fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		if !isRetryableStatus(resp.StatusCode) {
+			return nil, lastErr
+		}
+	}
+	return nil, fmt.Errorf("giving up after %d attempts: %w", maxRetries+1, lastErr)
 }
 
 // GCM response structures
@@ -514,7 +629,7 @@ type gcmTimeSeriesResponse struct {
 	} `json:"error"`
 }
 
-func verifyGCM(ctx context.Context, client *http.Client, projectID string, token string, isStaging bool, targets []MetricTarget, namespace string, cluster string, lookback time.Duration, concurrency int) map[string]MetricResult {
+func verifyGCM(ctx context.Context, client *http.Client, projectID string, token string, isStaging bool, targets []MetricTarget, namespace string, cluster string, lookback time.Duration, concurrency int, maxRetries int) map[string]MetricResult {
 	results := make(map[string]MetricResult, len(targets))
 	for _, t := range targets {
 		results[t.Name] = MetricResult{Target: t, Found: false}
@@ -562,32 +677,7 @@ func verifyGCM(ctx context.Context, client *http.Client, projectID string, token
 			params.Set("pageSize", "1")
 
 			reqURL := endpoint + "?" + params.Encode()
-			req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
-			if err != nil {
-				mu.Lock()
-				r := results[target.Name]
-				r.Err = err.Error()
-				results[target.Name] = r
-				mu.Unlock()
-				return
-			}
-			req.Header.Set("Authorization", "Bearer "+token)
-			if projectID != "" {
-				req.Header.Set("X-Goog-User-Project", projectID)
-			}
-
-			resp, err := client.Do(req)
-			if err != nil {
-				mu.Lock()
-				r := results[target.Name]
-				r.Err = err.Error()
-				results[target.Name] = r
-				mu.Unlock()
-				return
-			}
-			defer resp.Body.Close()
-
-			body, err := io.ReadAll(resp.Body)
+			body, err := doGetWithRetry(ctx, client, reqURL, token, projectID, maxRetries)
 			if err != nil {
 				mu.Lock()
 				r := results[target.Name]
@@ -623,21 +713,32 @@ func verifyGCM(ctx context.Context, client *http.Client, projectID string, token
 	return results
 }
 
+// summarizeResults aggregates per-metric outcomes into three buckets: found,
+// missing (backend answered, no data) and errored (query failed, status
+// unknown). Conflating the last two is what makes a quota outage look like
+// data loss, so they are kept strictly apart.
 func summarizeResults(mode string, results map[string]MetricResult, duration time.Duration) VerificationSummary {
 	summary := VerificationSummary{
 		Mode:          mode,
 		TotalExpected: len(results),
 		DurationMs:    duration.Milliseconds(),
 		ByType:        make(map[MetricType]TypeStat),
+		ErrorSamples:  make(map[string]int),
 	}
 
 	for _, r := range results {
 		stat := summary.ByType[r.Target.Type]
 		stat.Expected++
-		if r.Found {
+		switch {
+		case r.Found:
 			stat.Found++
 			summary.TotalFound++
-		} else {
+		case r.Err != "":
+			stat.Errored++
+			summary.TotalErrored++
+			summary.ErroredMetrics = append(summary.ErroredMetrics, r.Target.Name)
+			summary.ErrorSamples[summarizeErr(r.Err)]++
+		default:
 			stat.Missing++
 			summary.TotalMissing++
 			summary.MissingMetrics = append(summary.MissingMetrics, r.Target.Name)
@@ -646,14 +747,32 @@ func summarizeResults(mode string, results map[string]MetricResult, duration tim
 	}
 
 	sort.Strings(summary.MissingMetrics)
-	summary.Passed = summary.TotalMissing == 0 && summary.TotalExpected > 0
+	sort.Strings(summary.ErroredMetrics)
+	if len(summary.ErrorSamples) == 0 {
+		summary.ErrorSamples = nil
+	}
+	summary.Inconclusive = summary.TotalErrored > 0
+	summary.Passed = summary.TotalMissing == 0 && summary.TotalErrored == 0 && summary.TotalExpected > 0
 	return summary
+}
+
+// summarizeErr trims an error message down to a stable key so that a thousand
+// identical quota errors collapse into a single reported line. Whitespace is
+// flattened because API errors arrive as pretty-printed JSON, which would
+// otherwise be cut off at the first newline and hide the actual message.
+func summarizeErr(err string) string {
+	err = strings.Join(strings.Fields(err), " ")
+	const maxLen = 160
+	if len(err) > maxLen {
+		err = err[:maxLen] + "..."
+	}
+	return err
 }
 
 func printSummaryTable(w io.Writer, s VerificationSummary) {
 	fmt.Fprintf(w, "\n--- Metric Verification Summary (Mode: %s, Duration: %.2fs) ---\n", s.Mode, float64(s.DurationMs)/1000.0)
 	tw := tabwriter.NewWriter(w, 0, 0, 3, ' ', 0)
-	fmt.Fprintln(tw, "METRIC TYPE\tEXPECTED\tQUERYABLE\tMISSING\tSTATUS")
+	fmt.Fprintln(tw, "METRIC TYPE\tEXPECTED\tQUERYABLE\tMISSING\tERRORED\tSTATUS")
 
 	types := []MetricType{TypeGauge, TypeCounter, TypeHistogram, TypeNativeHistogram, TypeSummary}
 	for _, t := range types {
@@ -662,30 +781,70 @@ func printSummaryTable(w io.Writer, s VerificationSummary) {
 			continue
 		}
 		status := "OK"
-		if stat.Missing > 0 {
+		switch {
+		case stat.Missing > 0:
 			status = "MISSING"
+		case stat.Errored > 0:
+			status = "INCONCLUSIVE"
 		}
-		fmt.Fprintf(tw, "%s\t%d\t%d\t%d\t%s\n", t, stat.Expected, stat.Found, stat.Missing, status)
+		fmt.Fprintf(tw, "%s\t%d\t%d\t%d\t%d\t%s\n", t, stat.Expected, stat.Found, stat.Missing, stat.Errored, status)
 	}
 
 	fmt.Fprintln(tw, "--------------------------------------------------------")
 	totalStatus := "PASSED"
-	if !s.Passed {
+	switch {
+	case s.TotalMissing > 0:
 		totalStatus = "FAILED"
+	case s.TotalErrored > 0:
+		totalStatus = "INCONCLUSIVE"
 	}
-	fmt.Fprintf(tw, "TOTAL\t%d\t%d\t%d\t%s\n", s.TotalExpected, s.TotalFound, s.TotalMissing, totalStatus)
+	fmt.Fprintf(tw, "TOTAL\t%d\t%d\t%d\t%d\t%s\n", s.TotalExpected, s.TotalFound, s.TotalMissing, s.TotalErrored, totalStatus)
 	_ = tw.Flush()
 
-	if len(s.MissingMetrics) > 0 {
-		fmt.Fprintf(w, "\nMissing / Unqueryable metrics (%d):\n", len(s.MissingMetrics))
-		maxShow := 25
-		for i, m := range s.MissingMetrics {
+	printList := func(title string, items []string) {
+		if len(items) == 0 {
+			return
+		}
+		fmt.Fprintf(w, "\n%s (%d):\n", title, len(items))
+		const maxShow = 25
+		for i, m := range items {
 			if i >= maxShow {
-				fmt.Fprintf(w, "  ... and %d more\n", len(s.MissingMetrics)-maxShow)
+				fmt.Fprintf(w, "  ... and %d more\n", len(items)-maxShow)
 				break
 			}
 			fmt.Fprintf(w, "  - %s\n", m)
 		}
+	}
+
+	printList("Missing / Unqueryable metrics", s.MissingMetrics)
+
+	if s.TotalErrored > 0 {
+		fmt.Fprintf(w, "\nWARNING: %d metric(s) could not be verified because the query failed.\n", s.TotalErrored)
+		fmt.Fprintf(w, "These are NOT reported as missing data - their state is unknown.\n")
+		fmt.Fprintf(w, "If these are quota errors (HTTP 429), lower -concurrency or raise -max-retries.\n")
+		type kv struct {
+			msg string
+			n   int
+		}
+		var kvs []kv
+		for m, n := range s.ErrorSamples {
+			kvs = append(kvs, kv{m, n})
+		}
+		sort.Slice(kvs, func(i, j int) bool {
+			if kvs[i].n != kvs[j].n {
+				return kvs[i].n > kvs[j].n
+			}
+			return kvs[i].msg < kvs[j].msg
+		})
+		fmt.Fprintf(w, "\nErrors by kind:\n")
+		for i, e := range kvs {
+			if i >= 5 {
+				fmt.Fprintf(w, "  ... and %d more kind(s)\n", len(kvs)-5)
+				break
+			}
+			fmt.Fprintf(w, "  %5dx %s\n", e.n, e.msg)
+		}
+		printList("Unverified metrics", s.ErroredMetrics)
 	}
 	fmt.Fprintln(w)
 }
@@ -725,9 +884,13 @@ func main() {
 	matchers := flag.String("matchers", "", "Extra PromQL label matchers in format 'k=v,k2=v2'.")
 	format := flag.String("format", "table", "Output format: 'table' or 'json'.")
 
-	concurrency := flag.Int("concurrency", 20, "Number of concurrent workers for querying.")
+	// Concurrency defaults to 4: empirically 20 concurrent batch queries reliably
+	// trips the Managed Prometheus / Cloud Monitoring read quota (HTTP 429),
+	// which used to be misreported as missing metrics.
+	concurrency := flag.Int("concurrency", 4, "Number of concurrent workers for querying. Raising this risks HTTP 429 quota errors.")
 	batchSize := flag.Int("batch-size", 25, "Number of metrics to batch in each PromQL union query.")
-	timeout := flag.Duration("timeout", 60*time.Second, "Overall verification timeout.")
+	maxRetries := flag.Int("max-retries", defaultMaxRetries, "Retries for throttled/transient query failures (HTTP 429 and 5xx), with exponential backoff.")
+	timeout := flag.Duration("timeout", 300*time.Second, "Overall verification timeout.")
 	lookback := flag.Duration("lookback", 15*time.Minute, "Lookback interval for GCM time series query.")
 
 	// Explicit avalanche configuration overrides
@@ -862,7 +1025,7 @@ func main() {
 	httpClient := &http.Client{Timeout: 30 * time.Second}
 	matchersStr := buildLabelMatchers(ns, *clusterName, *matchers)
 
-	allPassed := true
+	var anyMissing, anyErrored bool
 
 	// 3. Execute PromQL verification
 	if *mode == "promql" || *mode == "both" {
@@ -874,7 +1037,7 @@ func main() {
 			fmt.Printf("Verifying %d metrics via PromQL%s at %s with selector %s ...\n", len(targets), stagingLabel, endpointPromQL, matchersStr)
 		}
 		start := time.Now()
-		promResults := verifyPromQL(ctx, httpClient, endpointPromQL, authToken, proj, targets, matchersStr, *batchSize, *concurrency)
+		promResults := verifyPromQL(ctx, httpClient, endpointPromQL, authToken, proj, targets, matchersStr, *batchSize, *concurrency, *maxRetries)
 		elapsed := time.Since(start)
 
 		summary := summarizeResults("PromQL", promResults, elapsed)
@@ -883,8 +1046,11 @@ func main() {
 		} else {
 			printSummaryTable(os.Stdout, summary)
 		}
-		if !summary.Passed {
-			allPassed = false
+		if summary.TotalMissing > 0 {
+			anyMissing = true
+		}
+		if summary.TotalErrored > 0 {
+			anyErrored = true
 		}
 	}
 
@@ -905,7 +1071,7 @@ func main() {
 			fmt.Printf("Verifying %d metrics via GCM TimeSeries API%s (project: %s, namespace: %s, cluster: %s) ...\n", len(targets), stagingLabel, proj, ns, *clusterName)
 		}
 		start := time.Now()
-		gcmResults := verifyGCM(ctx, httpClient, proj, authToken, isStaging, targets, ns, *clusterName, *lookback, *concurrency)
+		gcmResults := verifyGCM(ctx, httpClient, proj, authToken, isStaging, targets, ns, *clusterName, *lookback, *concurrency, *maxRetries)
 		elapsed := time.Since(start)
 
 		summary := summarizeResults("GCM", gcmResults, elapsed)
@@ -914,12 +1080,23 @@ func main() {
 		} else {
 			printSummaryTable(os.Stdout, summary)
 		}
-		if !summary.Passed {
-			allPassed = false
+		if summary.TotalMissing > 0 {
+			anyMissing = true
+		}
+		if summary.TotalErrored > 0 {
+			anyErrored = true
 		}
 	}
 
-	if !allPassed {
+	// Exit codes are distinct on purpose:
+	//   1 = metrics are genuinely missing (a real regression)
+	//   2 = verification was inconclusive (queries failed; state unknown)
+	// Treating the second as the first is what previously turned quota
+	// throttling into a phantom data-loss report.
+	switch {
+	case anyMissing:
 		os.Exit(1)
+	case anyErrored:
+		os.Exit(2)
 	}
 }

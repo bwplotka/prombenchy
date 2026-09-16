@@ -54,7 +54,6 @@ data:
           honor_timestamps: false
           scrape_interval: 15s
           scrape_timeout: 15s
-          scrape_native_histograms: true
           metrics_path: /metrics
           follow_redirects: true
           enable_http2: true

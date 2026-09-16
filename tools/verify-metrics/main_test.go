@@ -2,7 +2,11 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -112,13 +116,15 @@ func TestGenerateMetrics(t *testing.T) {
 		t.Errorf("expected histogram GCM type, got %s", hist.GCMType)
 	}
 
-	// Native Histogram check
+	// Native Histogram check.
+	// The GCM API cannot query native histograms directly - an ingested native
+	// histogram is a distribution, exposed only as <name>_count / _sum / _bucket.
 	nativeHist := metrics[5]
 	if nativeHist.Type != TypeNativeHistogram {
 		t.Errorf("expected native histogram type, got %s", nativeHist.Type)
 	}
-	if nativeHist.PromQLQueryName != "avalanche_native_histogram_metric_mmmmm_0_0" {
-		t.Errorf("expected native histogram PromQL name without _count, got %s", nativeHist.PromQLQueryName)
+	if nativeHist.PromQLQueryName != "avalanche_native_histogram_metric_mmmmm_0_0_count" {
+		t.Errorf("expected native histogram PromQL name with _count, got %s", nativeHist.PromQLQueryName)
 	}
 
 	// Summary check
@@ -211,3 +217,151 @@ func TestDetectStagingFromScenario(t *testing.T) {
 	}
 }
 
+func TestPromQLSelector(t *testing.T) {
+	nativeHist := MetricTarget{
+		Name:            "nh_0",
+		PromQLQueryName: "nh_0_count",
+	}
+	if got, want := nativeHist.promQLSelector(`{namespace="gmp"}`), `count(nh_0_count{namespace="gmp"})`; got != want {
+		t.Errorf("promQLSelector() = %q, want %q", got, want)
+	}
+
+	plain := MetricTarget{Name: "g_0", PromQLQueryName: "g_0"}
+	if got, want := plain.promQLSelector(""), "count(g_0)"; got != want {
+		t.Errorf("promQLSelector() = %q, want %q", got, want)
+	}
+}
+
+// TestSummarizeResultsSeparatesErroredFromMissing guards the regression that
+// made a quota outage look like data loss: a metric whose query failed must be
+// counted as errored/inconclusive, never as missing.
+func TestSummarizeResultsSeparatesErroredFromMissing(t *testing.T) {
+	results := map[string]MetricResult{
+		"found_0":   {Target: MetricTarget{Type: TypeGauge, Name: "found_0"}, Found: true},
+		"missing_0": {Target: MetricTarget{Type: TypeGauge, Name: "missing_0"}, Found: false},
+		"errored_0": {Target: MetricTarget{Type: TypeCounter, Name: "errored_0"}, Found: false, Err: "HTTP 429: Resource has been exhausted"},
+		"errored_1": {Target: MetricTarget{Type: TypeCounter, Name: "errored_1"}, Found: false, Err: "HTTP 429: Resource has been exhausted"},
+	}
+
+	s := summarizeResults("PromQL", results, time.Second)
+
+	if s.TotalFound != 1 {
+		t.Errorf("expected 1 found, got %d", s.TotalFound)
+	}
+	if s.TotalMissing != 1 {
+		t.Errorf("expected 1 missing, got %d", s.TotalMissing)
+	}
+	if s.TotalErrored != 2 {
+		t.Errorf("expected 2 errored, got %d", s.TotalErrored)
+	}
+	if len(s.MissingMetrics) != 1 || s.MissingMetrics[0] != "missing_0" {
+		t.Errorf("errored metrics must not leak into MissingMetrics, got %v", s.MissingMetrics)
+	}
+	if !s.Inconclusive {
+		t.Error("expected run to be marked inconclusive")
+	}
+	if s.Passed {
+		t.Error("expected Passed to be false")
+	}
+	if n := s.ErrorSamples["HTTP 429: Resource has been exhausted"]; n != 2 {
+		t.Errorf("expected identical errors to be grouped with count 2, got %d", n)
+	}
+
+	var buf bytes.Buffer
+	printSummaryTable(&buf, s)
+	out := buf.String()
+	for _, want := range []string{"ERRORED", "could not be verified", "HTTP 429"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected output to contain %q, got:\n%s", want, out)
+		}
+	}
+}
+
+// A run with only errors must not claim anything is missing.
+func TestSummarizeResultsAllErroredReportsNoMissing(t *testing.T) {
+	results := map[string]MetricResult{
+		"a": {Target: MetricTarget{Type: TypeGauge, Name: "a"}, Err: "HTTP 429"},
+	}
+	s := summarizeResults("PromQL", results, time.Second)
+	if s.TotalMissing != 0 {
+		t.Errorf("expected 0 missing when every query failed, got %d", s.TotalMissing)
+	}
+	var buf bytes.Buffer
+	printSummaryTable(&buf, s)
+	if out := buf.String(); !strings.Contains(out, "INCONCLUSIVE") {
+		t.Errorf("expected INCONCLUSIVE verdict, got:\n%s", out)
+	}
+}
+
+func TestIsRetryableStatus(t *testing.T) {
+	for _, tc := range []struct {
+		code int
+		want bool
+	}{
+		{http.StatusOK, false},
+		{http.StatusBadRequest, false},
+		{http.StatusUnauthorized, false},
+		{http.StatusTooManyRequests, true},
+		{http.StatusInternalServerError, true},
+		{http.StatusServiceUnavailable, true},
+	} {
+		if got := isRetryableStatus(tc.code); got != tc.want {
+			t.Errorf("isRetryableStatus(%d) = %v, want %v", tc.code, got, tc.want)
+		}
+	}
+}
+
+func TestDoQueryWithRetryRecoversFrom429(t *testing.T) {
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if atomic.AddInt32(&calls, 1) == 1 {
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = w.Write([]byte(`{"error":{"code":429,"message":"Resource has been exhausted"}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[]}}`))
+	}))
+	defer srv.Close()
+
+	body, err := doQueryWithRetry(context.Background(), srv.Client(), srv.URL, "", "", "up", 3)
+	if err != nil {
+		t.Fatalf("expected retry to succeed, got error: %v", err)
+	}
+	if !strings.Contains(string(body), "success") {
+		t.Errorf("unexpected body: %s", body)
+	}
+	if got := atomic.LoadInt32(&calls); got != 2 {
+		t.Errorf("expected 2 attempts, got %d", got)
+	}
+}
+
+func TestDoQueryWithRetryDoesNotRetryClientError(t *testing.T) {
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("bad query"))
+	}))
+	defer srv.Close()
+
+	if _, err := doQueryWithRetry(context.Background(), srv.Client(), srv.URL, "", "", "up", 3); err == nil {
+		t.Fatal("expected an error for HTTP 400")
+	}
+	if got := atomic.LoadInt32(&calls); got != 1 {
+		t.Errorf("HTTP 400 must not be retried, got %d attempts", got)
+	}
+}
+
+func TestBackoffDelayGrowsAndIsCapped(t *testing.T) {
+	first := backoffDelay(0)
+	second := backoffDelay(1)
+	if first < 500*time.Millisecond {
+		t.Errorf("first delay too small: %v", first)
+	}
+	if second < first {
+		t.Errorf("expected growing backoff, got %v then %v", first, second)
+	}
+	if capped := backoffDelay(20); capped > 19*time.Second {
+		t.Errorf("expected capped backoff, got %v", capped)
+	}
+}

@@ -61,10 +61,41 @@ bash ./scripts/bench-verify.sh prom-rw ./manifests/scenarios/prom-rw bwplotka-rw
 | `-token` | Bearer token for API | Auto-acquired via gcloud auth |
 | `-load-manifest` | Path to avalanche manifest | `./manifests/load/avalanche.exampletarget.yaml` |
 | `-format` | Output format (`table` or `json`) | `table` |
-| `-concurrency` | Concurrent worker count | `20` |
+| `-concurrency` | Concurrent worker count. Higher values risk HTTP 429 quota errors | `4` |
 | `-batch-size` | Metrics per batched PromQL query | `25` |
-| `-timeout` | Overall verification timeout | `60s` |
+| `-max-retries` | Retries for throttled/transient failures (HTTP 429, 5xx) with exponential backoff | `5` |
+| `-timeout` | Overall verification timeout | `300s` |
 | `-lookback` | Lookback interval for GCM time series query | `15m` |
+
+### Result classification
+
+Every metric lands in exactly one of three buckets, and the distinction matters:
+
+| Bucket | Meaning |
+|--------|---------|
+| `QUERYABLE` | The backend returned data for the metric. |
+| `MISSING` | The backend answered successfully but had **no data**. This is a genuine gap. |
+| `ERRORED` | The query itself failed (quota exhaustion, timeout, backend error). The metric's state is **unknown** — this is *not* evidence of missing data. |
+
+A run with any `ERRORED` metrics is reported as `INCONCLUSIVE` rather than `FAILED`, and the
+error messages are printed grouped by kind. If you see HTTP 429 (`Resource has been exhausted`),
+lower `-concurrency` or raise `-max-retries`; the read quota on the Managed Prometheus /
+Cloud Monitoring APIs is easy to trip, and treating those errors as missing data produces
+large phantom gaps that change from run to run.
+
+### Exit codes
+
+| Code | Meaning |
+|------|---------|
+| `0` | All expected metrics are queryable. |
+| `1` | At least one metric is genuinely missing. |
+| `2` | Verification was inconclusive (queries failed; nothing can be concluded). |
+
+### Native histograms
+
+Native histograms are verified as `<name>_count`. The current GCM API does not support querying
+native histograms as such: an ingested native histogram is a distribution, which the GMP PromQL API
+exposes only as `_count` / `_sum` / `_bucket`, so querying the bare family name always returns empty.
 
 ### Authentication
 
