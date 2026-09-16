@@ -204,5 +204,10 @@ func TestDetectStagingFromScenario(t *testing.T) {
 	if detectStagingFromScenario("../../manifests/scenarios/gmp") {
 		t.Errorf("expected manifests/scenarios/gmp NOT to be detected as staging")
 	}
+
+	// Test against gmp3 which does not contain staging-monitoring
+	if detectStagingFromScenario("../../manifests/scenarios/gmp3") {
+		t.Errorf("expected manifests/scenarios/gmp3 NOT to be detected as staging")
+	}
 }
 
