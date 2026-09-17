@@ -448,7 +448,7 @@ func doQueryWithRetry(ctx context.Context, client *http.Client, endpoint, token,
 	return nil, fmt.Errorf("giving up after %d attempts: %w", maxRetries+1, lastErr)
 }
 
-func verifyPromQL(ctx context.Context, client *http.Client, endpoint string, token string, projectID string, targets []MetricTarget, matchersStr string, batchSize int, concurrency int, maxRetries int) map[string]MetricResult {
+func verifyPromQL(ctx context.Context, client *http.Client, endpoint, token, projectID string, targets []MetricTarget, matchersStr string, batchSize, concurrency, maxRetries int) map[string]MetricResult {
 	results := make(map[string]MetricResult, len(targets))
 	for _, t := range targets {
 		results[t.Name] = MetricResult{Target: t, Found: false}
@@ -527,7 +527,7 @@ func verifyPromQL(ctx context.Context, client *http.Client, endpoint string, tok
 	return results
 }
 
-func executePromQL(ctx context.Context, client *http.Client, endpoint string, token string, projectID string, query string, maxRetries int) (map[string]bool, error) {
+func executePromQL(ctx context.Context, client *http.Client, endpoint, token, projectID, query string, maxRetries int) (map[string]bool, error) {
 	body, err := doQueryWithRetry(ctx, client, endpoint, token, projectID, query, maxRetries)
 	if err != nil {
 		return nil, err
@@ -550,7 +550,7 @@ func executePromQL(ctx context.Context, client *http.Client, endpoint string, to
 	return found, nil
 }
 
-func executePromQLSingle(ctx context.Context, client *http.Client, endpoint string, token string, projectID string, query string, maxRetries int) (bool, error) {
+func executePromQLSingle(ctx context.Context, client *http.Client, endpoint, token, projectID, query string, maxRetries int) (bool, error) {
 	body, err := doQueryWithRetry(ctx, client, endpoint, token, projectID, query, maxRetries)
 	if err != nil {
 		return false, err
@@ -629,7 +629,7 @@ type gcmTimeSeriesResponse struct {
 	} `json:"error"`
 }
 
-func verifyGCM(ctx context.Context, client *http.Client, projectID string, token string, isStaging bool, targets []MetricTarget, namespace string, cluster string, lookback time.Duration, concurrency int, maxRetries int) map[string]MetricResult {
+func verifyGCM(ctx context.Context, client *http.Client, projectID, token string, isStaging bool, targets []MetricTarget, namespace, cluster string, lookback time.Duration, concurrency, maxRetries int) map[string]MetricResult {
 	results := make(map[string]MetricResult, len(targets))
 	for _, t := range targets {
 		results[t.Name] = MetricResult{Target: t, Found: false}

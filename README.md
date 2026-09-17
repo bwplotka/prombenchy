@@ -22,6 +22,7 @@ The general flow looks as follows:
     * `prom-rw`: Upstream OSS Prometheus using Prometheus Remote Write v2 (`io.prometheus.write.v2.Request`) with `google_iam` authentication to Google Cloud Monitoring.
     * `prom-rw-m`: Same as `prom-rw`, but uses `--enable-feature=metadata-wal-records` instead of `--enable-feature=type-and-unit-labels`.
     * `prom-rw-nost`: Same as `prom-rw`, but without created timestamps features (`--enable-feature=st-storage` and `--enable-feature=st-synthesis`).
+    * `prom-rw-m-unkn`: Same as `prom-rw-m`, but metric traffic is sent through a local `prwproxy` sidecar proxy (handling start timestamps and untyped metrics) forwarding to GCM staging.
 
     Feel free to adjust anything in `./manifests/scenarios/` or add your own. You are also welcome to create custom scenarios under `scenarios/`, store them locally or propose to this repo.
     
