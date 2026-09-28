@@ -284,7 +284,6 @@ spec:
         args:
         - --web.listen-address=:9092
         - --forward.url=https://staging-monitoring.sandbox.googleapis.com/v1/prometheus/api/v2/write
-        - --forward.google-auth=true
         - --log.format=json
         ports:
         - name: proxy-ins
