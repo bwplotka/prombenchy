@@ -1,4 +1,9 @@
 apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Env.BENCH_NAME }}
+---
+apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: collector
@@ -210,6 +215,9 @@ data:
         - action: insert
           key: gcp.project_id
           value: {{ .Env.PROJECT_ID }}
+        - action: upsert
+          key: k8s.namespace.name
+          value: {{ .Env.BENCH_NAME }}
 
       # The metricstarttime processor is important to include if you are using the prometheus receiver to ensure the start time is set properly.
       # It is a no-op otherwise.
@@ -236,15 +244,12 @@ data:
             scrape_timeout: 15s
             scrape_protocols:
             - PrometheusProto
-            - OpenMetricsText1.0.0
-            - OpenMetricsText0.0.1
-            - PrometheusText0.0.4
             metrics_path: /metrics
             follow_redirects: true
             enable_http2: true
             relabel_configs:
             - source_labels: [__meta_kubernetes_namespace]
-              regex: {{ .Env.BENCH_NAME }}
+              regex: core
               action: keep
             - source_labels: [__meta_kubernetes_pod_label_app]
               regex: avalanche
@@ -255,8 +260,8 @@ data:
             - source_labels: [__meta_kubernetes_pod_container_name]
               target_label: container
               action: replace
-            - source_labels: [__meta_kubernetes_namespace]
-              target_label: namespace
+            - target_label: namespace
+              replacement: {{ .Env.BENCH_NAME }}
               action: replace
             - target_label: job
               replacement: avalanche
@@ -452,4 +457,4 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       nodeSelector:
-        role: {{ .Env.BENCH_NAME }}-work
+        role: core

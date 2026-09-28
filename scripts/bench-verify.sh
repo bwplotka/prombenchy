@@ -6,7 +6,7 @@ IFS=$'\t\n'
 
 BENCH_NAME=${1:-}
 if [ -z "${BENCH_NAME}" ]; then
-    echo "benchmark name is required as the first parameter!"
+    echo "scenario/benchmark name is required as the first parameter!"
     exit 1
 fi
 
@@ -14,15 +14,17 @@ SCENARIO=${2:-}
 CLUSTER_NAME=${3:-}
 MODE=${4:-promql}
 STAGING=${5:-${STAGING:-false}}
+WINDOW=${6:-${WINDOW:-5m}}
 
-PROJECT_ID=$(gcloud config get project 2>/dev/null || true)
+PROJECT_ID=${PROJECT_ID:-$(gcloud config get project 2>/dev/null || true)}
 export PROJECT_ID
 
-echo "## Verifying all metrics are queryable for benchmark ${BENCH_NAME} (mode: ${MODE}, staging: ${STAGING})"
+echo "## Verifying metrics over window ${WINDOW} for scenario ${BENCH_NAME} (mode: ${MODE}, staging: ${STAGING})"
 
 args=(
   "-bench-name=${BENCH_NAME}"
   "-mode=${MODE}"
+  "-window=${WINDOW}"
 )
 
 if [ "${STAGING}" = "true" ] || [ "${STAGING}" = "1" ]; then

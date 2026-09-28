@@ -7,24 +7,25 @@ source .bingo/variables.env
 CLUSTER_NAME=$1
 if [ -z "${CLUSTER_NAME}" ]; then
     echo "cluster name is required as the first parameter!"
+    exit 1
 fi
 
 ZONE="us-central1-a"
-PROJECT_ID=$(gcloud config get project)
+PROJECT_ID=${PROJECT_ID:-$(gcloud config get project)}
 
 # Do nothing if cluster already exists.
-if gcloud container clusters list --filter="name: ${CLUSTER_NAME}" 2>&1 | grep -q "^${CLUSTER_NAME} "
+if gcloud container clusters list --project="${PROJECT_ID}" --filter="name: ${CLUSTER_NAME}" 2>&1 | grep -q "^${CLUSTER_NAME} "
 then
   echo "WARN: Cluster ${CLUSTER_NAME} already exists, skipping creation"
-  gcloud container clusters get-credentials ${CLUSTER_NAME} --zone ${ZONE} --project ${PROJECT_ID}
+  gcloud container clusters get-credentials "${CLUSTER_NAME}" --zone "${ZONE}" --project "${PROJECT_ID}"
 else
   # Start a new cluster.
   # https://cloud.google.com/sdk/gcloud/reference/container/clusters/create
   # n2-standard-4 -- 4 vCPUs 16 GB
-  gcloud container clusters create ${CLUSTER_NAME} \
-    --project=${PROJECT_ID} \
-    --location=${ZONE} \
-    --workload-pool=${PROJECT_ID}.svc.id.goog \
+  gcloud container clusters create "${CLUSTER_NAME}" \
+    --project="${PROJECT_ID}" \
+    --location="${ZONE}" \
+    --workload-pool="${PROJECT_ID}.svc.id.goog" \
     --release-channel=rapid \
     --num-nodes=1 \
     --node-labels="role=core" \
@@ -50,9 +51,9 @@ trap 'rm -r "$TEMP_DIR"'  EXIT
 # Make sure the gmp-prombench Service Account exists
 # TODO(bwplotka): Clean this up, test again after changes.
 SA="gmp-prombench"
-if ! gcloud iam service-accounts list --project=${PROJECT_ID} | grep ${SA}
+if ! gcloud iam service-accounts list --project="${PROJECT_ID}" | grep -q "${SA}"
 then
-  gcloud iam service-accounts create "${SA}" --project=${PROJECT_ID} \
+  gcloud iam service-accounts create "${SA}" --project="${PROJECT_ID}" \
   --description="A service account just to used for the core GMP manifests" \
   --display-name="GMP Prombenchy Service Account" \
   --quiet
@@ -68,6 +69,6 @@ then
     --quiet
 fi
 
-echo "## Installing core resources"
+echo "## Installing core resources (including shared avalanche target)"
 PROJECT_ID=${PROJECT_ID} ${GOMPLATE} --input-dir=./manifests/core --output-dir="${TEMP_DIR}"
 kubectl apply -f "${TEMP_DIR}"

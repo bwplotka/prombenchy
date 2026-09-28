@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: avalanche
+  namespace: core
+  labels:
+    app: avalanche
+spec:
+  selector:
+    matchLabels:
+      app: avalanche
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: avalanche
+    spec:
+      containers:
+      - name: avalanche
+        image: gcr.io/gpe-test-1/avalanche:v0.6.0-main-bw6 #quay.io/prometheuscommunity/avalanche:main
+        args:
+        # Acceptance test configuration: 1 metric per type and 1 series across all types.
+        - "--gauge-metric-count=1"
+        - "--counter-metric-count=1"
+        - "--histogram-metric-count=1"
+        - "--histogram-metric-bucket-count=10" # Does not count +Inf
+        - "--native-histogram-metric-count=1"
+        - "--summary-metric-count=1" # One metric gives 2 series.
+        - "--summary-metric-objective-count=2" # One metric gives 2 series.
+        - "--series-count=1"
+        - "--value-interval=15" # Changes values every 15s
+        - "--series-interval=0" # No series churn.
+        - "--metric-interval=0"
+        - "--port=9001"
+        ports:
+        - containerPort: 9001
+          name: metrics
+      nodeSelector:
+        role: core

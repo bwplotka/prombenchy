@@ -40,11 +40,29 @@ type MetricTarget struct {
 	GCMType         string     `json:"gcm_type"`
 }
 
-// promQLSelector returns the `count(<name><matchers>)` expression used to decide
-// whether this target is queryable. Shared by the batched and the single-metric
-// query paths so both always agree on what is being asked.
+// promQLSelector returns the `count(<name><matchers>)` expression used for
+// point-in-time existence checks.
 func (t MetricTarget) promQLSelector(matchersStr string) string {
 	return fmt.Sprintf("count(%s%s)", t.PromQLQueryName, matchersStr)
+}
+
+// promQLRangeVector returns `<name><matchers>[<window>]` for range aggregations.
+func (t MetricTarget) promQLRangeVector(matchersStr, windowStr string) string {
+	return fmt.Sprintf("%s%s[%s]", t.PromQLQueryName, matchersStr, windowStr)
+}
+
+func formatPromQLDuration(d time.Duration) string {
+	if d <= 0 {
+		return "5m"
+	}
+	secs := int64(d.Round(time.Second).Seconds())
+	if secs <= 0 {
+		secs = 1
+	}
+	if secs%60 == 0 {
+		return fmt.Sprintf("%dm", secs/60)
+	}
+	return fmt.Sprintf("%ds", secs)
 }
 
 type AvalancheConfig struct {
@@ -55,6 +73,7 @@ type AvalancheConfig struct {
 	NativeHistogramMetricCount  int
 	SummaryMetricCount          int
 	SummaryMetricObjectiveCount int
+	SeriesCount                 int
 	MetricNameLength            int
 	MetricInterval              int
 	MetricCycle                 int
@@ -62,13 +81,14 @@ type AvalancheConfig struct {
 
 func DefaultAvalancheConfig() AvalancheConfig {
 	return AvalancheConfig{
-		GaugeMetricCount:            500,
-		CounterMetricCount:          0,
-		HistogramMetricCount:        0,
-		HistogramMetricBucketCount:  7,
-		NativeHistogramMetricCount:  0,
-		SummaryMetricCount:          0,
+		GaugeMetricCount:            1,
+		CounterMetricCount:          1,
+		HistogramMetricCount:        1,
+		HistogramMetricBucketCount:  10,
+		NativeHistogramMetricCount:  1,
+		SummaryMetricCount:          1,
 		SummaryMetricObjectiveCount: 2,
+		SeriesCount:                 1,
 		MetricNameLength:            5,
 		MetricInterval:              0,
 		MetricCycle:                 0,
@@ -77,7 +97,13 @@ func DefaultAvalancheConfig() AvalancheConfig {
 
 func ParseAvalancheArgs(args []string) AvalancheConfig {
 	cfg := DefaultAvalancheConfig()
-	hasCustomGauge := false
+	var (
+		hasGauge      bool
+		hasCounter    bool
+		hasHist       bool
+		hasNativeHist bool
+		hasSummary    bool
+	)
 
 	for _, arg := range args {
 		arg = strings.TrimSpace(arg)
@@ -96,15 +122,17 @@ func ParseAvalancheArgs(args []string) AvalancheConfig {
 		case "gauge-metric-count":
 			if n, err := strconv.Atoi(val); err == nil {
 				cfg.GaugeMetricCount = n
-				hasCustomGauge = true
+				hasGauge = true
 			}
 		case "counter-metric-count":
 			if n, err := strconv.Atoi(val); err == nil {
 				cfg.CounterMetricCount = n
+				hasCounter = true
 			}
 		case "histogram-metric-count":
 			if n, err := strconv.Atoi(val); err == nil {
 				cfg.HistogramMetricCount = n
+				hasHist = true
 			}
 		case "histogram-metric-bucket-count":
 			if n, err := strconv.Atoi(val); err == nil {
@@ -113,14 +141,20 @@ func ParseAvalancheArgs(args []string) AvalancheConfig {
 		case "native-histogram-metric-count":
 			if n, err := strconv.Atoi(val); err == nil {
 				cfg.NativeHistogramMetricCount = n
+				hasNativeHist = true
 			}
 		case "summary-metric-count":
 			if n, err := strconv.Atoi(val); err == nil {
 				cfg.SummaryMetricCount = n
+				hasSummary = true
 			}
 		case "summary-metric-objective-count":
 			if n, err := strconv.Atoi(val); err == nil {
 				cfg.SummaryMetricObjectiveCount = n
+			}
+		case "series-count":
+			if n, err := strconv.Atoi(val); err == nil {
+				cfg.SeriesCount = n
 			}
 		case "metricname-length":
 			if n, err := strconv.Atoi(val); err == nil {
@@ -133,11 +167,24 @@ func ParseAvalancheArgs(args []string) AvalancheConfig {
 		}
 	}
 
-	// If user configured any other metric count and didn't set gauge-metric-count,
-	// default gauge to 0 rather than avalanche's legacy default of 500.
-	if !hasCustomGauge && (cfg.CounterMetricCount > 0 || cfg.HistogramMetricCount > 0 ||
-		cfg.NativeHistogramMetricCount > 0 || cfg.SummaryMetricCount > 0) {
-		cfg.GaugeMetricCount = 0
+	// If any metric count flag was explicitly provided, zero out the others
+	// that were not explicitly specified.
+	if hasGauge || hasCounter || hasHist || hasNativeHist || hasSummary {
+		if !hasGauge {
+			cfg.GaugeMetricCount = 0
+		}
+		if !hasCounter {
+			cfg.CounterMetricCount = 0
+		}
+		if !hasHist {
+			cfg.HistogramMetricCount = 0
+		}
+		if !hasNativeHist {
+			cfg.NativeHistogramMetricCount = 0
+		}
+		if !hasSummary {
+			cfg.SummaryMetricCount = 0
+		}
 	}
 
 	return cfg
@@ -149,7 +196,7 @@ func ExtractArgsFromManifest(filePath string) ([]string, error) {
 		return nil, fmt.Errorf("reading manifest file %s: %w", filePath, err)
 	}
 
-	// Extract lines containing avalanche arguments e.g. - "--gauge-metric-count=158"
+	// Extract lines containing avalanche arguments e.g. - "--gauge-metric-count=1"
 	re := regexp.MustCompile(`--[a-zA-Z0-9_-]+=[^ \n\r"']+`)
 	matches := re.FindAllString(string(data), -1)
 	return matches, nil
@@ -291,17 +338,62 @@ func getProjectID(explicitProject string) string {
 }
 
 type MetricResult struct {
-	Target MetricTarget `json:"target"`
-	Found  bool         `json:"found"`
-	Err    string       `json:"error,omitempty"`
+	Target        MetricTarget `json:"target"`
+	Found         bool         `json:"found"`
+	SeriesCount   int          `json:"series_count"`
+	SampleCount   int          `json:"sample_count"`
+	MinVal        float64      `json:"min_val"`
+	MaxVal        float64      `json:"max_val"`
+	HasStats      bool         `json:"has_stats,omitempty"`
+	ValidationErr string       `json:"validation_error,omitempty"`
+	Err           string       `json:"error,omitempty"`
+}
+
+// validateMetricOverWindow assesses whether a metric's over-time data in the
+// queried window matches expectations for the single-series acceptance test:
+//  1. SeriesCount matches expectedSeries (when expectedSeries > 0).
+//  2. SampleCount >= 2 over the window.
+//  3. Value progression matches MetricType semantics:
+//     - GAUGE: 0 <= MinVal <= MaxVal <= 100
+//     - COUNTER, HISTOGRAM (classic), HISTOGRAM (native), SUMMARY:
+//     MinVal >= 0 and MaxVal > MinVal (monotonically increasing over time).
+func validateMetricOverWindow(r *MetricResult, expectedSeries int) {
+	if !r.Found || !r.HasStats {
+		return
+	}
+	var reasons []string
+	if expectedSeries > 0 && r.SeriesCount != expectedSeries {
+		reasons = append(reasons, fmt.Sprintf("expected %d series, got %d", expectedSeries, r.SeriesCount))
+	}
+	if r.SampleCount < 2 {
+		reasons = append(reasons, fmt.Sprintf("expected >= 2 samples in window, got %d", r.SampleCount))
+	} else {
+		switch r.Target.Type {
+		case TypeGauge:
+			if r.MinVal < 0 || r.MaxVal > 100 || r.MaxVal < r.MinVal {
+				reasons = append(reasons, fmt.Sprintf("gauge values out of expected [0, 100] range (min=%.2f, max=%.2f)", r.MinVal, r.MaxVal))
+			}
+		case TypeCounter, TypeHistogram, TypeNativeHistogram, TypeSummary:
+			if r.MinVal < 0 {
+				reasons = append(reasons, fmt.Sprintf("cumulative metric has negative min=%.2f", r.MinVal))
+			}
+			if r.MaxVal <= r.MinVal {
+				reasons = append(reasons, fmt.Sprintf("cumulative metric did not increase over window (min=%.2f, max=%.2f)", r.MinVal, r.MaxVal))
+			}
+		}
+	}
+	if len(reasons) > 0 {
+		r.ValidationErr = strings.Join(reasons, "; ")
+	}
 }
 
 type VerificationSummary struct {
 	Mode          string `json:"mode"`
+	Window        string `json:"window,omitempty"`
 	TotalExpected int    `json:"total_expected"`
 	TotalFound    int    `json:"total_found"`
 	// TotalMissing counts metrics the backend answered about successfully but
-	// had no data for. These are genuine gaps.
+	// had no data for (or failed window validation). These are genuine gaps.
 	TotalMissing int `json:"total_missing"`
 	// TotalErrored counts metrics whose status could not be determined because
 	// the query itself failed (quota exhaustion, timeouts, backend errors).
@@ -312,16 +404,22 @@ type VerificationSummary struct {
 	Inconclusive   bool                    `json:"inconclusive"`
 	ByType         map[MetricType]TypeStat `json:"by_type"`
 	MissingMetrics []string                `json:"missing_metrics,omitempty"`
+	InvalidMetrics []string                `json:"invalid_metrics,omitempty"`
 	ErroredMetrics []string                `json:"errored_metrics,omitempty"`
 	// ErrorSamples maps a representative error message to how many metrics hit it.
 	ErrorSamples map[string]int `json:"error_samples,omitempty"`
 }
 
 type TypeStat struct {
-	Expected int `json:"expected"`
-	Found    int `json:"found"`
-	Missing  int `json:"missing"`
-	Errored  int `json:"errored"`
+	Expected    int     `json:"expected"`
+	Found       int     `json:"found"`
+	Missing     int     `json:"missing"`
+	Errored     int     `json:"errored"`
+	SeriesCount int     `json:"series_count,omitempty"`
+	SampleCount int     `json:"sample_count,omitempty"`
+	MinVal      float64 `json:"min_val,omitempty"`
+	MaxVal      float64 `json:"max_val,omitempty"`
+	HasStats    bool    `json:"has_stats,omitempty"`
 }
 
 // PromQL response structures
@@ -363,10 +461,7 @@ func buildLabelMatchers(namespace, cluster, customMatchers string) string {
 }
 
 // defaultMaxRetries is the number of additional attempts made for retryable
-// responses (HTTP 429 and 5xx). Managed Prometheus / Cloud Monitoring answer
-// with 429 "Resource has been exhausted" as soon as the read quota is hit, and
-// without retrying those the caller cannot tell quota exhaustion apart from
-// genuinely absent data.
+// responses (HTTP 429 and 5xx).
 const defaultMaxRetries = 5
 
 // isRetryableStatus reports whether an HTTP status is worth retrying.
@@ -448,18 +543,36 @@ func doQueryWithRetry(ctx context.Context, client *http.Client, endpoint, token,
 	return nil, fmt.Errorf("giving up after %d attempts: %w", maxRetries+1, lastErr)
 }
 
-func verifyPromQL(ctx context.Context, client *http.Client, endpoint, token, projectID string, targets []MetricTarget, matchersStr string, batchSize, concurrency, maxRetries int) map[string]MetricResult {
+type metricWindowStats struct {
+	found       bool
+	hasStats    bool
+	seriesCount int
+	sampleCount int
+	minVal      float64
+	maxVal      float64
+}
+
+func buildPromQLWindowExpr(t MetricTarget, matchersStr, windowStr string) string {
+	rv := t.promQLRangeVector(matchersStr, windowStr)
+	return fmt.Sprintf(
+		`label_replace(label_replace(count_over_time(%s), "metric", "%s", "", ""), "__stat__", "count", "", "") or label_replace(label_replace(min_over_time(%s), "metric", "%s", "", ""), "__stat__", "min", "", "") or label_replace(label_replace(max_over_time(%s), "metric", "%s", "", ""), "__stat__", "max", "", "")`,
+		rv, t.Name, rv, t.Name, rv, t.Name,
+	)
+}
+
+func verifyPromQL(ctx context.Context, client *http.Client, endpoint, token, projectID string, targets []MetricTarget, matchersStr string, window time.Duration, expectedSeries, batchSize, concurrency, maxRetries int) map[string]MetricResult {
 	results := make(map[string]MetricResult, len(targets))
 	for _, t := range targets {
 		results[t.Name] = MetricResult{Target: t, Found: false}
 	}
 
 	if batchSize <= 0 {
-		batchSize = 25
+		batchSize = 10
 	}
 	if concurrency <= 0 {
 		concurrency = 5
 	}
+	windowStr := formatPromQLDuration(window)
 
 	var batches [][]MetricTarget
 	for i := 0; i < len(targets); i += batchSize {
@@ -482,29 +595,30 @@ func verifyPromQL(ctx context.Context, client *http.Client, endpoint, token, pro
 			defer wg.Done()
 			defer func() { <-sem }()
 
-			// Construct batch query.
 			var parts []string
 			for _, t := range batch {
-				parts = append(parts, fmt.Sprintf(`label_replace(%s, "metric", "%s", "", "")`, t.promQLSelector(matchersStr), t.Name))
+				parts = append(parts, buildPromQLWindowExpr(t, matchersStr, windowStr))
 			}
 			query := strings.Join(parts, " or ")
 
-			foundInBatch, err := executePromQL(ctx, client, endpoint, token, projectID, query, maxRetries)
+			statsInBatch, err := executePromQLWindow(ctx, client, endpoint, token, projectID, query, maxRetries)
 			if err != nil {
-				// Batch failed; fall back to checking each metric in the batch
-				// individually. A metric is only reported as missing when the
-				// backend answers successfully with an empty result; if the
-				// fallback also fails we record the error so the summary can
-				// report it as inconclusive rather than as missing data.
+				// Batch failed; fall back to checking each metric in the batch individually.
 				for _, t := range batch {
-					f, sErr := executePromQLSingle(ctx, client, endpoint, token, projectID, t.promQLSelector(matchersStr), maxRetries)
+					singleQuery := buildPromQLWindowExpr(t, matchersStr, windowStr)
+					stMap, sErr := executePromQLWindow(ctx, client, endpoint, token, projectID, singleQuery, maxRetries)
 					mu.Lock()
 					r := results[t.Name]
-					r.Found = f
 					if sErr != nil {
 						r.Err = sErr.Error()
-					} else {
-						r.Err = ""
+					} else if st, ok := stMap[t.Name]; ok && st.found {
+						r.Found = true
+						r.HasStats = st.hasStats
+						r.SeriesCount = st.seriesCount
+						r.SampleCount = st.sampleCount
+						r.MinVal = st.minVal
+						r.MaxVal = st.maxVal
+						validateMetricOverWindow(&r, expectedSeries)
 					}
 					results[t.Name] = r
 					mu.Unlock()
@@ -515,7 +629,15 @@ func verifyPromQL(ctx context.Context, client *http.Client, endpoint, token, pro
 			mu.Lock()
 			for _, t := range batch {
 				r := results[t.Name]
-				r.Found = foundInBatch[t.Name]
+				if st, ok := statsInBatch[t.Name]; ok && st.found {
+					r.Found = true
+					r.HasStats = st.hasStats
+					r.SeriesCount = st.seriesCount
+					r.SampleCount = st.sampleCount
+					r.MinVal = st.minVal
+					r.MaxVal = st.maxVal
+					validateMetricOverWindow(&r, expectedSeries)
+				}
 				r.Err = ""
 				results[t.Name] = r
 			}
@@ -527,7 +649,22 @@ func verifyPromQL(ctx context.Context, client *http.Client, endpoint, token, pro
 	return results
 }
 
-func executePromQL(ctx context.Context, client *http.Client, endpoint, token, projectID, query string, maxRetries int) (map[string]bool, error) {
+func parsePromQLSampleValue(v []interface{}) (float64, bool) {
+	if len(v) < 2 {
+		return 0, false
+	}
+	switch val := v[1].(type) {
+	case string:
+		f, err := strconv.ParseFloat(val, 64)
+		return f, err == nil
+	case float64:
+		return val, true
+	default:
+		return 0, false
+	}
+}
+
+func executePromQLWindow(ctx context.Context, client *http.Client, endpoint, token, projectID, query string, maxRetries int) (map[string]metricWindowStats, error) {
 	body, err := doQueryWithRetry(ctx, client, endpoint, token, projectID, query, maxRetries)
 	if err != nil {
 		return nil, err
@@ -541,30 +678,50 @@ func executePromQL(ctx context.Context, client *http.Client, endpoint, token, pr
 		return nil, fmt.Errorf("PromQL error: %s: %s", pResp.ErrorType, pResp.Error)
 	}
 
-	found := make(map[string]bool)
+	stats := make(map[string]metricWindowStats)
+	hasMin := make(map[string]bool)
+	hasMax := make(map[string]bool)
+
 	for _, r := range pResp.Data.Result {
-		if metricName, ok := r.Metric["metric"]; ok {
-			found[metricName] = true
+		metricName, ok := r.Metric["metric"]
+		if !ok || metricName == "" {
+			continue
 		}
-	}
-	return found, nil
-}
+		st := stats[metricName]
+		st.found = true
 
-func executePromQLSingle(ctx context.Context, client *http.Client, endpoint, token, projectID, query string, maxRetries int) (bool, error) {
-	body, err := doQueryWithRetry(ctx, client, endpoint, token, projectID, query, maxRetries)
-	if err != nil {
-		return false, err
-	}
+		statKind := r.Metric["__stat__"]
+		val, hasVal := parsePromQLSampleValue(r.Value)
 
-	var pResp promQLResponse
-	if err := json.Unmarshal(body, &pResp); err != nil {
-		return false, err
+		switch statKind {
+		case "count":
+			st.hasStats = true
+			st.seriesCount++
+			if hasVal {
+				st.sampleCount += int(math.Round(val))
+			}
+		case "min":
+			st.hasStats = true
+			if hasVal && (!hasMin[metricName] || val < st.minVal) {
+				st.minVal = val
+				hasMin[metricName] = true
+			}
+		case "max":
+			st.hasStats = true
+			if hasVal && (!hasMax[metricName] || val > st.maxVal) {
+				st.maxVal = val
+				hasMax[metricName] = true
+			}
+		default:
+			// Fallback for simple mock responses without __stat__.
+			st.seriesCount++
+			if hasVal {
+				st.sampleCount += int(math.Round(val))
+			}
+		}
+		stats[metricName] = st
 	}
-	if pResp.Status != "success" {
-		return false, fmt.Errorf("%s", pResp.Error)
-	}
-
-	return len(pResp.Data.Result) > 0, nil
+	return stats, nil
 }
 
 // doGetWithRetry issues a GET against a Google Cloud API and retries retryable
@@ -616,12 +773,24 @@ func doGetWithRetry(ctx context.Context, client *http.Client, reqURL, token, pro
 }
 
 // GCM response structures
+type gcmPointValue struct {
+	DoubleValue       *float64 `json:"doubleValue"`
+	Int64Value        *string  `json:"int64Value"`
+	DistributionValue *struct {
+		Count string  `json:"count"`
+		Mean  float64 `json:"mean"`
+	} `json:"distributionValue"`
+}
+
 type gcmTimeSeriesResponse struct {
 	TimeSeries []struct {
 		Metric struct {
 			Type   string            `json:"type"`
 			Labels map[string]string `json:"labels"`
 		} `json:"metric"`
+		Points []struct {
+			Value gcmPointValue `json:"value"`
+		} `json:"points"`
 	} `json:"timeSeries"`
 	Error *struct {
 		Code    int    `json:"code"`
@@ -629,18 +798,35 @@ type gcmTimeSeriesResponse struct {
 	} `json:"error"`
 }
 
-func verifyGCM(ctx context.Context, client *http.Client, projectID, token string, isStaging bool, targets []MetricTarget, namespace, cluster string, lookback time.Duration, concurrency, maxRetries int) map[string]MetricResult {
+func extractGCMPointNumeric(v gcmPointValue) (float64, bool) {
+	if v.DoubleValue != nil {
+		return *v.DoubleValue, true
+	}
+	if v.Int64Value != nil {
+		if f, err := strconv.ParseFloat(*v.Int64Value, 64); err == nil {
+			return f, true
+		}
+	}
+	if v.DistributionValue != nil && v.DistributionValue.Count != "" {
+		if f, err := strconv.ParseFloat(v.DistributionValue.Count, 64); err == nil {
+			return f, true
+		}
+	}
+	return 0, false
+}
+
+func verifyGCM(ctx context.Context, client *http.Client, projectID, token string, isStaging bool, targets []MetricTarget, namespace, cluster string, window time.Duration, expectedSeries, concurrency, maxRetries int) map[string]MetricResult {
 	results := make(map[string]MetricResult, len(targets))
 	for _, t := range targets {
 		results[t.Name] = MetricResult{Target: t, Found: false}
 	}
 
 	if concurrency <= 0 {
-		concurrency = 25
+		concurrency = 10
 	}
 
 	now := time.Now().UTC()
-	startTime := now.Add(-lookback).Format(time.RFC3339)
+	startTime := now.Add(-window).Format(time.RFC3339)
 	endTime := now.Format(time.RFC3339)
 
 	var mu sync.Mutex
@@ -673,8 +859,7 @@ func verifyGCM(ctx context.Context, client *http.Client, projectID, token string
 			params.Set("filter", filter)
 			params.Set("interval.startTime", startTime)
 			params.Set("interval.endTime", endTime)
-			params.Set("view", "HEADERS")
-			params.Set("pageSize", "1")
+			params.Set("view", "FULL")
 
 			reqURL := endpoint + "?" + params.Encode()
 			body, err := doGetWithRetry(ctx, client, reqURL, token, projectID, maxRetries)
@@ -703,6 +888,36 @@ func verifyGCM(ctx context.Context, client *http.Client, projectID, token string
 				r.Err = fmt.Sprintf("GCM error %d: %s", gResp.Error.Code, gResp.Error.Message)
 			} else if len(gResp.TimeSeries) > 0 {
 				r.Found = true
+				r.SeriesCount = len(gResp.TimeSeries)
+				var hasVal bool
+				for _, ts := range gResp.TimeSeries {
+					r.SampleCount += len(ts.Points)
+					for _, pt := range ts.Points {
+						if val, ok := extractGCMPointNumeric(pt.Value); ok {
+							if !hasVal {
+								r.MinVal = val
+								r.MaxVal = val
+								hasVal = true
+							} else {
+								if val < r.MinVal {
+									r.MinVal = val
+								}
+								if val > r.MaxVal {
+									r.MaxVal = val
+								}
+							}
+						}
+					}
+				}
+				if hasVal {
+					r.HasStats = true
+					// For GCM summary quantile metric, each objective quantile is a separate series
+					expSeries := expectedSeries
+					if target.Type == TypeSummary {
+						expSeries = 0
+					}
+					validateMetricOverWindow(&r, expSeries)
+				}
 			}
 			results[target.Name] = r
 			mu.Unlock()
@@ -713,10 +928,9 @@ func verifyGCM(ctx context.Context, client *http.Client, projectID, token string
 	return results
 }
 
-// summarizeResults aggregates per-metric outcomes into three buckets: found,
-// missing (backend answered, no data) and errored (query failed, status
-// unknown). Conflating the last two is what makes a quota outage look like
-// data loss, so they are kept strictly apart.
+// summarizeResults aggregates per-metric outcomes into three buckets: found & valid,
+// missing/invalid (backend answered, no data or failed window validation) and errored
+// (query failed, status unknown).
 func summarizeResults(mode string, results map[string]MetricResult, duration time.Duration) VerificationSummary {
 	summary := VerificationSummary{
 		Mode:          mode,
@@ -729,8 +943,15 @@ func summarizeResults(mode string, results map[string]MetricResult, duration tim
 	for _, r := range results {
 		stat := summary.ByType[r.Target.Type]
 		stat.Expected++
+		if r.HasStats {
+			stat.HasStats = true
+			stat.SeriesCount += r.SeriesCount
+			stat.SampleCount += r.SampleCount
+			stat.MinVal = r.MinVal
+			stat.MaxVal = r.MaxVal
+		}
 		switch {
-		case r.Found:
+		case r.Found && r.ValidationErr == "":
 			stat.Found++
 			summary.TotalFound++
 		case r.Err != "":
@@ -738,6 +959,10 @@ func summarizeResults(mode string, results map[string]MetricResult, duration tim
 			summary.TotalErrored++
 			summary.ErroredMetrics = append(summary.ErroredMetrics, r.Target.Name)
 			summary.ErrorSamples[summarizeErr(r.Err)]++
+		case r.Found && r.ValidationErr != "":
+			stat.Missing++
+			summary.TotalMissing++
+			summary.InvalidMetrics = append(summary.InvalidMetrics, fmt.Sprintf("%s (%s)", r.Target.Name, r.ValidationErr))
 		default:
 			stat.Missing++
 			summary.TotalMissing++
@@ -747,6 +972,7 @@ func summarizeResults(mode string, results map[string]MetricResult, duration tim
 	}
 
 	sort.Strings(summary.MissingMetrics)
+	sort.Strings(summary.InvalidMetrics)
 	sort.Strings(summary.ErroredMetrics)
 	if len(summary.ErrorSamples) == 0 {
 		summary.ErrorSamples = nil
@@ -756,10 +982,6 @@ func summarizeResults(mode string, results map[string]MetricResult, duration tim
 	return summary
 }
 
-// summarizeErr trims an error message down to a stable key so that a thousand
-// identical quota errors collapse into a single reported line. Whitespace is
-// flattened because API errors arrive as pretty-printed JSON, which would
-// otherwise be cut off at the first newline and hide the actual message.
 func summarizeErr(err string) string {
 	err = strings.Join(strings.Fields(err), " ")
 	const maxLen = 160
@@ -770,9 +992,13 @@ func summarizeErr(err string) string {
 }
 
 func printSummaryTable(w io.Writer, s VerificationSummary) {
-	fmt.Fprintf(w, "\n--- Metric Verification Summary (Mode: %s, Duration: %.2fs) ---\n", s.Mode, float64(s.DurationMs)/1000.0)
+	windowLabel := ""
+	if s.Window != "" {
+		windowLabel = fmt.Sprintf(", Window: %s", s.Window)
+	}
+	fmt.Fprintf(w, "\n--- Metric Verification Summary (Mode: %s%s, Duration: %.2fs) ---\n", s.Mode, windowLabel, float64(s.DurationMs)/1000.0)
 	tw := tabwriter.NewWriter(w, 0, 0, 3, ' ', 0)
-	fmt.Fprintln(tw, "METRIC TYPE\tEXPECTED\tQUERYABLE\tMISSING\tERRORED\tSTATUS")
+	fmt.Fprintln(tw, "METRIC TYPE\tEXPECTED\tQUERYABLE\tSERIES\tSAMPLES\tMIN..MAX\tMISSING\tERRORED\tSTATUS")
 
 	types := []MetricType{TypeGauge, TypeCounter, TypeHistogram, TypeNativeHistogram, TypeSummary}
 	for _, t := range types {
@@ -787,7 +1013,12 @@ func printSummaryTable(w io.Writer, s VerificationSummary) {
 		case stat.Errored > 0:
 			status = "INCONCLUSIVE"
 		}
-		fmt.Fprintf(tw, "%s\t%d\t%d\t%d\t%d\t%s\n", t, stat.Expected, stat.Found, stat.Missing, stat.Errored, status)
+		minMaxStr := "-"
+		if stat.HasStats {
+			minMaxStr = fmt.Sprintf("%.1f..%.1f", stat.MinVal, stat.MaxVal)
+		}
+		fmt.Fprintf(tw, "%s\t%d\t%d\t%d\t%d\t%s\t%d\t%d\t%s\n",
+			t, stat.Expected, stat.Found, stat.SeriesCount, stat.SampleCount, minMaxStr, stat.Missing, stat.Errored, status)
 	}
 
 	fmt.Fprintln(tw, "--------------------------------------------------------")
@@ -798,7 +1029,7 @@ func printSummaryTable(w io.Writer, s VerificationSummary) {
 	case s.TotalErrored > 0:
 		totalStatus = "INCONCLUSIVE"
 	}
-	fmt.Fprintf(tw, "TOTAL\t%d\t%d\t%d\t%d\t%s\n", s.TotalExpected, s.TotalFound, s.TotalMissing, s.TotalErrored, totalStatus)
+	fmt.Fprintf(tw, "TOTAL\t%d\t%d\t-\t-\t-\t%d\t%d\t%s\n", s.TotalExpected, s.TotalFound, s.TotalMissing, s.TotalErrored, totalStatus)
 	_ = tw.Flush()
 
 	printList := func(title string, items []string) {
@@ -817,6 +1048,7 @@ func printSummaryTable(w io.Writer, s VerificationSummary) {
 	}
 
 	printList("Missing / Unqueryable metrics", s.MissingMetrics)
+	printList("Window validation failures", s.InvalidMetrics)
 
 	if s.TotalErrored > 0 {
 		fmt.Fprintf(w, "\nWARNING: %d metric(s) could not be verified because the query failed.\n", s.TotalErrored)
@@ -871,8 +1103,9 @@ func detectStagingFromScenario(scenarioDir string) bool {
 }
 
 func main() {
-	benchName := flag.String("bench-name", "", "Benchmark name (also Kubernetes namespace where avalanche runs).")
-	namespace := flag.String("namespace", "", "Kubernetes namespace (defaults to bench-name).")
+	benchName := flag.String("bench-name", "", "Scenario / benchmark name (used as namespace label matcher).")
+	namespace := flag.String("namespace", "", "Metric namespace label filter (defaults to bench-name).")
+	avalancheNamespace := flag.String("avalanche-namespace", "core", "Kubernetes namespace where the shared avalanche deployment runs.")
 	clusterName := flag.String("cluster-name", "", "Cluster name to filter metrics.")
 	projectID := flag.String("project-id", "", "Google Cloud project ID (defaults to gcloud current project).")
 	mode := flag.String("mode", "promql", "Verification mode: 'promql', 'gcm', or 'both'.")
@@ -880,18 +1113,16 @@ func main() {
 	promqlURL := flag.String("promql-url", "", "PromQL query endpoint URL. Defaults to GCP Managed Prometheus endpoint.")
 	token := flag.String("token", "", "Bearer token for API authorization. Defaults to ADC/gcloud auth token.")
 	scenarioDir := flag.String("scenario", "", "Scenario directory path (e.g. ./manifests/scenarios/gmp).")
-	loadManifest := flag.String("load-manifest", "", "Path to avalanche YAML manifest. Defaults to ./manifests/load/avalanche.exampletarget.yaml.")
+	loadManifest := flag.String("load-manifest", "", "Path to avalanche YAML manifest. Defaults to ./manifests/core/3_avalanche.yaml.")
 	matchers := flag.String("matchers", "", "Extra PromQL label matchers in format 'k=v,k2=v2'.")
 	format := flag.String("format", "table", "Output format: 'table' or 'json'.")
 
-	// Concurrency defaults to 4: empirically 20 concurrent batch queries reliably
-	// trips the Managed Prometheus / Cloud Monitoring read quota (HTTP 429),
-	// which used to be misreported as missing metrics.
 	concurrency := flag.Int("concurrency", 4, "Number of concurrent workers for querying. Raising this risks HTTP 429 quota errors.")
-	batchSize := flag.Int("batch-size", 25, "Number of metrics to batch in each PromQL union query.")
+	batchSize := flag.Int("batch-size", 10, "Number of metrics to batch in each PromQL union query.")
 	maxRetries := flag.Int("max-retries", defaultMaxRetries, "Retries for throttled/transient query failures (HTTP 429 and 5xx), with exponential backoff.")
 	timeout := flag.Duration("timeout", 300*time.Second, "Overall verification timeout.")
-	lookback := flag.Duration("lookback", 15*time.Minute, "Lookback interval for GCM time series query.")
+	window := flag.Duration("window", 5*time.Minute, "Time window over which to assess the 1 series data.")
+	lookback := flag.Duration("lookback", 0, "Deprecated alias for -window.")
 
 	// Explicit avalanche configuration overrides
 	gaugeCount := flag.Int("gauge-metric-count", -1, "Override gauge metric count.")
@@ -899,10 +1130,16 @@ func main() {
 	histogramCount := flag.Int("histogram-metric-count", -1, "Override classic histogram metric count.")
 	nativeHistogramCount := flag.Int("native-histogram-metric-count", -1, "Override native histogram metric count.")
 	summaryCount := flag.Int("summary-metric-count", -1, "Override summary metric count.")
+	seriesCount := flag.Int("series-count", -1, "Override expected series count per metric.")
 	metricLength := flag.Int("metricname-length", -1, "Override metricname length.")
 	metricInterval := flag.Int("metric-interval", -1, "Override metric interval.")
 
 	flag.Parse()
+
+	evalWindow := *window
+	if *lookback > 0 {
+		evalWindow = *lookback
+	}
 
 	ns := *benchName
 	if *namespace != "" {
@@ -925,18 +1162,22 @@ func main() {
 	// 1. Resolve Avalanche configuration
 	var avalancheArgs []string
 
-	// Attempt 1: From Kubernetes deployment if bench-name / namespace is given
-	if ns != "" {
-		args, err := GetDeploymentArgsFromK8s(ctx, ns)
+	// Attempt 1: From Kubernetes deployment in avalanche-namespace (core), or fallback to ns
+	for _, candidateNS := range []string{*avalancheNamespace, ns} {
+		if candidateNS == "" {
+			continue
+		}
+		args, err := GetDeploymentArgsFromK8s(ctx, candidateNS)
 		if err == nil && len(args) > 0 {
 			avalancheArgs = args
 			if *format != "json" {
-				fmt.Printf("Loaded Avalanche configuration from Kubernetes deployment avalanche in namespace %s\n", ns)
+				fmt.Printf("Loaded Avalanche configuration from Kubernetes deployment avalanche in namespace %s\n", candidateNS)
 			}
+			break
 		}
 	}
 
-	// Attempt 2: From load manifest or scenario dir
+	// Attempt 2: From load manifest or core manifest
 	if len(avalancheArgs) == 0 {
 		manifestPath := *loadManifest
 		if manifestPath == "" && *scenarioDir != "" {
@@ -946,9 +1187,14 @@ func main() {
 			}
 		}
 		if manifestPath == "" {
-			defaultPath := "./manifests/load/avalanche.exampletarget.yaml"
-			if _, err := os.Stat(defaultPath); err == nil {
-				manifestPath = defaultPath
+			for _, defaultPath := range []string{
+				"./manifests/core/3_avalanche.yaml",
+				"./manifests/load/avalanche.exampletarget.yaml",
+			} {
+				if _, err := os.Stat(defaultPath); err == nil {
+					manifestPath = defaultPath
+					break
+				}
 			}
 		}
 		if manifestPath != "" {
@@ -980,6 +1226,9 @@ func main() {
 	if *summaryCount >= 0 {
 		cfg.SummaryMetricCount = *summaryCount
 	}
+	if *seriesCount >= 0 {
+		cfg.SeriesCount = *seriesCount
+	}
 	if *metricLength >= 0 {
 		cfg.MetricNameLength = *metricLength
 	}
@@ -989,12 +1238,12 @@ func main() {
 
 	targets := GenerateMetrics(cfg)
 	if len(targets) == 0 {
-		log.Fatal("No metrics generated! Check avalanche arguments or pass flags (e.g. -gauge-metric-count=100).")
+		log.Fatal("No metrics generated! Check avalanche arguments or pass flags (e.g. -gauge-metric-count=1).")
 	}
 
 	if *format != "json" {
-		fmt.Printf("Expected %d metric families from Avalanche (gauges: %d, counters: %d, histograms: %d, native-histograms: %d, summaries: %d)\n",
-			len(targets), cfg.GaugeMetricCount, cfg.CounterMetricCount, cfg.HistogramMetricCount, cfg.NativeHistogramMetricCount, cfg.SummaryMetricCount)
+		fmt.Printf("Expected %d metric families (%d series each) from Avalanche (gauges: %d, counters: %d, histograms: %d, native-histograms: %d, summaries: %d)\n",
+			len(targets), cfg.SeriesCount, cfg.GaugeMetricCount, cfg.CounterMetricCount, cfg.HistogramMetricCount, cfg.NativeHistogramMetricCount, cfg.SummaryMetricCount)
 	}
 
 	// 2. Resolve Auth Token if needed
@@ -1034,13 +1283,15 @@ func main() {
 			if isStaging {
 				stagingLabel = " [staging]"
 			}
-			fmt.Printf("Verifying %d metrics via PromQL%s at %s with selector %s ...\n", len(targets), stagingLabel, endpointPromQL, matchersStr)
+			fmt.Printf("Verifying %d metrics over window %s via PromQL%s at %s with selector %s ...\n",
+				len(targets), formatPromQLDuration(evalWindow), stagingLabel, endpointPromQL, matchersStr)
 		}
 		start := time.Now()
-		promResults := verifyPromQL(ctx, httpClient, endpointPromQL, authToken, proj, targets, matchersStr, *batchSize, *concurrency, *maxRetries)
+		promResults := verifyPromQL(ctx, httpClient, endpointPromQL, authToken, proj, targets, matchersStr, evalWindow, cfg.SeriesCount, *batchSize, *concurrency, *maxRetries)
 		elapsed := time.Since(start)
 
 		summary := summarizeResults("PromQL", promResults, elapsed)
+		summary.Window = formatPromQLDuration(evalWindow)
 		if *format == "json" {
 			_ = json.NewEncoder(os.Stdout).Encode(summary)
 		} else {
@@ -1068,13 +1319,15 @@ func main() {
 			if isStaging {
 				stagingLabel = " [staging]"
 			}
-			fmt.Printf("Verifying %d metrics via GCM TimeSeries API%s (project: %s, namespace: %s, cluster: %s) ...\n", len(targets), stagingLabel, proj, ns, *clusterName)
+			fmt.Printf("Verifying %d metrics over window %s via GCM TimeSeries API%s (project: %s, namespace: %s, cluster: %s) ...\n",
+				len(targets), formatPromQLDuration(evalWindow), stagingLabel, proj, ns, *clusterName)
 		}
 		start := time.Now()
-		gcmResults := verifyGCM(ctx, httpClient, proj, authToken, isStaging, targets, ns, *clusterName, *lookback, *concurrency, *maxRetries)
+		gcmResults := verifyGCM(ctx, httpClient, proj, authToken, isStaging, targets, ns, *clusterName, evalWindow, cfg.SeriesCount, *concurrency, *maxRetries)
 		elapsed := time.Since(start)
 
 		summary := summarizeResults("GCM", gcmResults, elapsed)
+		summary.Window = formatPromQLDuration(evalWindow)
 		if *format == "json" {
 			_ = json.NewEncoder(os.Stdout).Encode(summary)
 		} else {
@@ -1088,11 +1341,6 @@ func main() {
 		}
 	}
 
-	// Exit codes are distinct on purpose:
-	//   1 = metrics are genuinely missing (a real regression)
-	//   2 = verification was inconclusive (queries failed; state unknown)
-	// Treating the second as the first is what previously turned quota
-	// throttling into a phantom data-loss report.
 	switch {
 	case anyMissing:
 		os.Exit(1)

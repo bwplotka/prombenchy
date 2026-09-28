@@ -11,6 +11,21 @@ import (
 	"time"
 )
 
+func TestDefaultAvalancheConfigSingleSeries(t *testing.T) {
+	cfg := DefaultAvalancheConfig()
+	if cfg.GaugeMetricCount != 1 || cfg.CounterMetricCount != 1 || cfg.HistogramMetricCount != 1 ||
+		cfg.NativeHistogramMetricCount != 1 || cfg.SummaryMetricCount != 1 {
+		t.Fatalf("expected 1 metric for each type in default config, got %+v", cfg)
+	}
+	if cfg.SeriesCount != 1 {
+		t.Fatalf("expected SeriesCount 1 in default config, got %d", cfg.SeriesCount)
+	}
+	metrics := GenerateMetrics(cfg)
+	if len(metrics) != 5 {
+		t.Fatalf("expected 5 total metrics across all types, got %d", len(metrics))
+	}
+}
+
 func TestParseAvalancheArgs(t *testing.T) {
 	args := []string{
 		"--gauge-metric-count=158",
@@ -46,6 +61,9 @@ func TestParseAvalancheArgs(t *testing.T) {
 	}
 	if cfg.SummaryMetricObjectiveCount != 2 {
 		t.Errorf("expected SummaryMetricObjectiveCount 2, got %d", cfg.SummaryMetricObjectiveCount)
+	}
+	if cfg.SeriesCount != 10 {
+		t.Errorf("expected SeriesCount 10, got %d", cfg.SeriesCount)
 	}
 	if cfg.MetricNameLength != 7 {
 		t.Errorf("expected MetricNameLength 7, got %d", cfg.MetricNameLength)
@@ -117,8 +135,6 @@ func TestGenerateMetrics(t *testing.T) {
 	}
 
 	// Native Histogram check.
-	// The GCM API cannot query native histograms directly - an ingested native
-	// histogram is a distribution, exposed only as <name>_count / _sum / _bucket.
 	nativeHist := metrics[5]
 	if nativeHist.Type != TypeNativeHistogram {
 		t.Errorf("expected native histogram type, got %s", nativeHist.Type)
@@ -161,12 +177,131 @@ func TestBuildLabelMatchers(t *testing.T) {
 	}
 }
 
+func TestValidateMetricOverWindow(t *testing.T) {
+	// Valid gauge
+	g := MetricResult{
+		Target:      MetricTarget{Type: TypeGauge, Name: "gauge_0"},
+		Found:       true,
+		HasStats:    true,
+		SeriesCount: 1,
+		SampleCount: 10,
+		MinVal:      12,
+		MaxVal:      87,
+	}
+	validateMetricOverWindow(&g, 1)
+	if g.ValidationErr != "" {
+		t.Errorf("expected valid gauge, got error: %s", g.ValidationErr)
+	}
+
+	// Valid counter (increasing)
+	c := MetricResult{
+		Target:      MetricTarget{Type: TypeCounter, Name: "counter_0"},
+		Found:       true,
+		HasStats:    true,
+		SeriesCount: 1,
+		SampleCount: 10,
+		MinVal:      100,
+		MaxVal:      450,
+	}
+	validateMetricOverWindow(&c, 1)
+	if c.ValidationErr != "" {
+		t.Errorf("expected valid counter, got error: %s", c.ValidationErr)
+	}
+
+	// Invalid counter (flat, not increasing)
+	cFlat := MetricResult{
+		Target:      MetricTarget{Type: TypeCounter, Name: "counter_flat"},
+		Found:       true,
+		HasStats:    true,
+		SeriesCount: 1,
+		SampleCount: 10,
+		MinVal:      100,
+		MaxVal:      100,
+	}
+	validateMetricOverWindow(&cFlat, 1)
+	if !strings.Contains(cFlat.ValidationErr, "did not increase") {
+		t.Errorf("expected non-increasing counter error, got: %q", cFlat.ValidationErr)
+	}
+
+	// Wrong series count
+	multiSeries := MetricResult{
+		Target:      MetricTarget{Type: TypeGauge, Name: "gauge_multi"},
+		Found:       true,
+		HasStats:    true,
+		SeriesCount: 2,
+		SampleCount: 10,
+		MinVal:      10,
+		MaxVal:      50,
+	}
+	validateMetricOverWindow(&multiSeries, 1)
+	if !strings.Contains(multiSeries.ValidationErr, "expected 1 series, got 2") {
+		t.Errorf("expected series mismatch error, got: %q", multiSeries.ValidationErr)
+	}
+
+	// Too few samples in window
+	fewSamples := MetricResult{
+		Target:      MetricTarget{Type: TypeHistogram, Name: "hist_0"},
+		Found:       true,
+		HasStats:    true,
+		SeriesCount: 1,
+		SampleCount: 1,
+		MinVal:      5,
+		MaxVal:      5,
+	}
+	validateMetricOverWindow(&fewSamples, 1)
+	if !strings.Contains(fewSamples.ValidationErr, "expected >= 2 samples") {
+		t.Errorf("expected insufficient samples error, got: %q", fewSamples.ValidationErr)
+	}
+}
+
+func TestVerifyPromQLWindow(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{
+			"status": "success",
+			"data": {
+				"resultType": "vector",
+				"result": [
+					{"metric": {"metric": "g_0", "__stat__": "count"}, "value": [1700000000, "15"]},
+					{"metric": {"metric": "g_0", "__stat__": "min"}, "value": [1700000000, "10"]},
+					{"metric": {"metric": "g_0", "__stat__": "max"}, "value": [1700000000, "85"]},
+					{"metric": {"metric": "c_0", "__stat__": "count"}, "value": [1700000000, "15"]},
+					{"metric": {"metric": "c_0", "__stat__": "min"}, "value": [1700000000, "50"]},
+					{"metric": {"metric": "c_0", "__stat__": "max"}, "value": [1700000000, "320"]}
+				]
+			}
+		}`))
+	}))
+	defer srv.Close()
+
+	targets := []MetricTarget{
+		{Type: TypeGauge, Name: "g_0", PromQLQueryName: "g_0"},
+		{Type: TypeCounter, Name: "c_0", PromQLQueryName: "c_0"},
+	}
+
+	results := verifyPromQL(context.Background(), srv.Client(), srv.URL, "", "", targets, `{namespace="gmp"}`, 5*time.Minute, 1, 10, 2, 1)
+	for _, name := range []string{"g_0", "c_0"} {
+		res := results[name]
+		if !res.Found {
+			t.Errorf("expected %s to be found", name)
+		}
+		if res.SeriesCount != 1 {
+			t.Errorf("expected %s SeriesCount=1, got %d", name, res.SeriesCount)
+		}
+		if res.SampleCount != 15 {
+			t.Errorf("expected %s SampleCount=15, got %d", name, res.SampleCount)
+		}
+		if res.ValidationErr != "" {
+			t.Errorf("expected %s ValidationErr to be empty, got %s", name, res.ValidationErr)
+		}
+	}
+}
+
 func TestSummarizeAndPrintTable(t *testing.T) {
 	targetGauge := MetricTarget{Type: TypeGauge, Name: "gauge_0"}
 	targetCounter := MetricTarget{Type: TypeCounter, Name: "counter_0"}
 
 	results := map[string]MetricResult{
-		"gauge_0":   {Target: targetGauge, Found: true},
+		"gauge_0":   {Target: targetGauge, Found: true, HasStats: true, SeriesCount: 1, SampleCount: 12, MinVal: 5, MaxVal: 90},
 		"counter_0": {Target: targetCounter, Found: false},
 	}
 
@@ -242,9 +377,6 @@ func TestPromQLSelector(t *testing.T) {
 	}
 }
 
-// TestSummarizeResultsSeparatesErroredFromMissing guards the regression that
-// made a quota outage look like data loss: a metric whose query failed must be
-// counted as errored/inconclusive, never as missing.
 func TestSummarizeResultsSeparatesErroredFromMissing(t *testing.T) {
 	results := map[string]MetricResult{
 		"found_0":   {Target: MetricTarget{Type: TypeGauge, Name: "found_0"}, Found: true},
@@ -287,7 +419,6 @@ func TestSummarizeResultsSeparatesErroredFromMissing(t *testing.T) {
 	}
 }
 
-// A run with only errors must not claim anything is missing.
 func TestSummarizeResultsAllErroredReportsNoMissing(t *testing.T) {
 	results := map[string]MetricResult{
 		"a": {Target: MetricTarget{Type: TypeGauge, Name: "a"}, Err: "HTTP 429"},

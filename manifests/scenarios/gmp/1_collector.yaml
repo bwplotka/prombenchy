@@ -1,4 +1,9 @@
 apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Env.BENCH_NAME }}
+---
+apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: collector
@@ -59,7 +64,7 @@ data:
           enable_http2: true
           relabel_configs:
             - source_labels: [__meta_kubernetes_namespace]
-              regex: {{ .Env.BENCH_NAME }}
+              regex: core
               action: keep
             - source_labels: [__meta_kubernetes_pod_label_app]
               regex: avalanche
@@ -70,8 +75,8 @@ data:
             - source_labels: [__meta_kubernetes_pod_container_name]
               target_label: container
               action: replace
-            - source_labels: [__meta_kubernetes_namespace]
-              target_label: namespace
+            - target_label: namespace
+              replacement: {{ .Env.BENCH_NAME }}
               action: replace
             - target_label: job
               replacement: avalanche
@@ -194,6 +199,7 @@ spec:
         args:
         - --config.file=/prometheus/config_out/config.yaml
         - --enable-feature=exemplar-storage
+        - --enable-feature=native-histograms
         # Special Google flag for authorization using native Kubernetes secrets.
         - --enable-feature=google-kubernetes-secret-provider
         - --storage.tsdb.path=/prometheus/data
@@ -291,4 +297,4 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       nodeSelector:
-        role: {{ .Env.BENCH_NAME }}-work
+        role: core
