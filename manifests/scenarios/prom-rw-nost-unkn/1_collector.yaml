@@ -128,15 +128,14 @@ data:
                 - role: pod
                   field: spec.nodeName=$(NODE_NAME)
     remote_write:
-    - name: "google_cloud"
-      url: "https://staging-monitoring.sandbox.googleapis.com/v1/prometheus/api/v2/write"
+    - name: "prwproxy"
+      url: "http://127.0.0.1:9092/api/v1/write"
       protobuf_message: "io.prometheus.write.v2.Request"
       send_native_histograms: true
       send_exemplars: true
       queue_config:
         max_samples_per_send: 200
         retry_on_http_429: true
-      google_iam: {}
 ---
 apiVersion: apps/v1
 kind: DaemonSet
@@ -215,13 +214,13 @@ spec:
             - all
           privileged: false
       - name: prometheus
-        image: us-east4-docker.pkg.dev/gpe-test-1/prometheus-engine/prometheus:v3.14.0-10f6962903
+        # Upstream Prometheus main, revision dff7878b9e3c236605e597297e0e61c4b0eff48f (2026-09-28).
+        image: quay.io/prometheus/prometheus:main@sha256:a1d84867bdce88eec9e05a0766b80c026356a58d537c52b4cf145b2219667bc9
         imagePullPolicy: Always
         args:
         - --config.file=/prometheus/config_out/config.yaml
         - --enable-feature=exemplar-storage
         - --enable-feature=native-histograms
-        - --enable-feature=type-and-unit-labels
         - --enable-feature=xor2-encoding
         - --storage.tsdb.path=/prometheus/data
         - --storage.tsdb.no-lockfile
@@ -271,6 +270,39 @@ spec:
           httpGet:
             port: 19090
             path: /-/ready
+            scheme: HTTP
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - all
+          privileged: false
+      - name: prwproxy
+        image: gcr.io/gpe-test-1/prwproxy:pr-371
+        imagePullPolicy: Always
+        args:
+        - --web.listen-address=:9092
+        - --forward.url=https://staging-monitoring.sandbox.googleapis.com/v1/prometheus/api/v2/write
+        - --forward.google-auth=true
+        - --log.format=json
+        ports:
+        - name: proxy-ins
+          containerPort: 9092
+        resources:
+          limits:
+            memory: 1G
+          requests:
+            cpu: 4m
+            memory: 32M
+        livenessProbe:
+          httpGet:
+            port: 9092
+            path: /-/healthy
+            scheme: HTTP
+        readinessProbe:
+          httpGet:
+            port: 9092
+            path: /-/healthy
             scheme: HTTP
         securityContext:
           allowPrivilegeEscalation: false

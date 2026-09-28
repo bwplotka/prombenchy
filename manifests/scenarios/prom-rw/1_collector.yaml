@@ -215,7 +215,8 @@ spec:
             - all
           privileged: false
       - name: prometheus
-        image: us-east4-docker.pkg.dev/gpe-test-1/prometheus-engine/prometheus:v3.14.0-10f6962903
+        # Upstream Prometheus main, revision dff7878b9e3c236605e597297e0e61c4b0eff48f (2026-09-28).
+        image: quay.io/prometheus/prometheus:main@sha256:a1d84867bdce88eec9e05a0766b80c026356a58d537c52b4cf145b2219667bc9
         imagePullPolicy: Always
         args:
         - --config.file=/prometheus/config_out/config.yaml

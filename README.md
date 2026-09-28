@@ -19,10 +19,10 @@ The general flow looks as follows:
     * `gmp3`: Prometheus v3 running with Google Managed Prometheus engine exporting to Google Cloud Monitoring.
     * `gmp-otel`: OpenTelemetry Collector (`otelcol-contrib`) scraping targets and exporting to GCM using `googlemanagedprometheus` exporter.
     * `otel-otlp`: OpenTelemetry Collector (`otelcol-google`) scraping targets and receiving OTLP, exporting directly via OTLP gRPC to Google Cloud Telemetry API (`telemetry.googleapis.com:443`).
-    * `prom-rw`: Upstream OSS Prometheus using Prometheus Remote Write v2 (`io.prometheus.write.v2.Request`) with `google_iam` authentication to Google Cloud Monitoring.
+    * `prom-rw`: Upstream OSS Prometheus (`main` image, pinned by digest) using Prometheus Remote Write v2 (`io.prometheus.write.v2.Request`) with `google_iam` authentication to Google Cloud Monitoring.
     * `prom-rw-m`: Same as `prom-rw`, but uses `--enable-feature=metadata-wal-records` instead of `--enable-feature=type-and-unit-labels`.
-    * `prom-rw-nost`: Same as `prom-rw`, but without created timestamps features (`--enable-feature=st-storage` and `--enable-feature=st-synthesis`).
-    * `prom-rw-m-unkn`: Same as `prom-rw-m`, but metric traffic is sent through a local `prwproxy` sidecar proxy (handling start timestamps and untyped metrics) forwarding to GCM staging.
+    * `prom-rw-nost-unkn`: Same as `prom-rw`, but without created timestamps features (`--enable-feature=st-storage` and `--enable-feature=st-synthesis`), without metadata or type and unit labels (no `--enable-feature=metadata-wal-records` nor `--enable-feature=type-and-unit-labels`) and with metric traffic sent through a local `prwproxy` sidecar proxy (handling start timestamps and untyped metrics) forwarding to GCM staging.
+    * `prom-rw-m-nost-unkn`: Same as `prom-rw-nost-unkn`, but with `--enable-feature=metadata-wal-records`.
 
     Feel free to adjust anything in `./manifests/scenarios/` or add your own. You are also welcome to create custom scenarios under `scenarios/`, store them locally or propose to this repo.
     
