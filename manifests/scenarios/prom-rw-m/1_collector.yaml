@@ -215,8 +215,8 @@ spec:
             - all
           privileged: false
       - name: prometheus
-        # Upstream Prometheus main, revision dff7878b9e3c236605e597297e0e61c4b0eff48f (2026-09-28).
-        image: quay.io/prometheus/prometheus:main@sha256:a1d84867bdce88eec9e05a0766b80c026356a58d537c52b4cf145b2219667bc9
+        # Upstream Prometheus main, revision 5ee21818d8abd5677381d9d0e7bca27352e4f46b (2026-10-14), mirrored to gcr.io/gpe-test-1 so Quay GC doesn't break node upgrades.
+        image: gcr.io/gpe-test-1/prometheus:main-5ee21818d8@sha256:801d9e462993a48a02772694f957c34b9fdcdc87652c4a14e225078e69e63b5e
         imagePullPolicy: Always
         args:
         - --config.file=/prometheus/config_out/config.yaml
