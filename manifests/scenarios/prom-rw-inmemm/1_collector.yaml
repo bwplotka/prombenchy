@@ -128,14 +128,15 @@ data:
                 - role: pod
                   field: spec.nodeName=$(NODE_NAME)
     remote_write:
-    - name: "prwproxy"
-      url: "http://127.0.0.1:9092/api/v1/write"
+    - name: "google_cloud"
+      url: "https://staging-monitoring.sandbox.googleapis.com/v1/prometheus/api/v2/write"
       protobuf_message: "io.prometheus.write.v2.Request"
       send_native_histograms: true
       send_exemplars: true
       queue_config:
         max_samples_per_send: 200
         retry_on_http_429: true
+      google_iam: {}
 ---
 apiVersion: apps/v1
 kind: DaemonSet
@@ -214,14 +215,16 @@ spec:
             - all
           privileged: false
       - name: prometheus
-        # Upstream Prometheus main, revision 5ee21818d8abd5677381d9d0e7bca27352e4f46b (2026-10-14), mirrored to gcr.io/gpe-test-1 so Quay GC doesn't break node upgrades.
-        image: gcr.io/gpe-test-1/prometheus:main-5ee21818d8@sha256:801d9e462993a48a02772694f957c34b9fdcdc87652c4a14e225078e69e63b5e
+        # Upstream Prometheus PR #19563 + native-metadata flag + RW2 metadata propagation (bwplotka/pr-19563-native-metadata-rw2), revision 9a95cda7f0 (2026-10-26).
+        image: gcr.io/gpe-test-1/prometheus:native-metadata-rw2-9a95cda7f0@sha256:ae316fca0e31456bc346a15347bd78d9c3181814256f741ea2c2837bbc9fe712
         imagePullPolicy: Always
         args:
         - --config.file=/prometheus/config_out/config.yaml
         - --enable-feature=exemplar-storage
         - --enable-feature=native-histograms
-        - --enable-feature=metadata-wal-records
+        - --enable-feature=st-storage
+        - --enable-feature=st-synthesis
+        - --enable-feature=native-metadata
         - --enable-feature=xor2-encoding
         - --storage.tsdb.path=/prometheus/data
         - --storage.tsdb.no-lockfile
@@ -271,38 +274,6 @@ spec:
           httpGet:
             port: 19090
             path: /-/ready
-            scheme: HTTP
-        securityContext:
-          allowPrivilegeEscalation: false
-          capabilities:
-            drop:
-            - all
-          privileged: false
-      - name: prwproxy
-        image: gcr.io/gpe-test-1/prwproxy:pr-371
-        imagePullPolicy: Always
-        args:
-        - --web.listen-address=:9092
-        - --forward.url=https://staging-monitoring.sandbox.googleapis.com/v1/prometheus/api/v2/write
-        - --log.format=json
-        ports:
-        - name: proxy-ins
-          containerPort: 9092
-        resources:
-          limits:
-            memory: 1G
-          requests:
-            cpu: 4m
-            memory: 32M
-        livenessProbe:
-          httpGet:
-            port: 9092
-            path: /-/healthy
-            scheme: HTTP
-        readinessProbe:
-          httpGet:
-            port: 9092
-            path: /-/healthy
             scheme: HTTP
         securityContext:
           allowPrivilegeEscalation: false

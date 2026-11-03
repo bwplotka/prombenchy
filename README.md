@@ -20,9 +20,12 @@ The general flow looks as follows:
     * `gmp-otel`: OpenTelemetry Collector (`otelcol-contrib`) scraping targets and exporting to GCM using `googlemanagedprometheus` exporter.
     * `otel-otlp`: OpenTelemetry Collector (`otelcol-google`) scraping targets and receiving OTLP, exporting directly via OTLP gRPC to Google Cloud Telemetry API (`telemetry.googleapis.com:443`).
     * `prom-rw`: Upstream OSS Prometheus (`main` image, pinned by digest) using Prometheus Remote Write v2 (`io.prometheus.write.v2.Request`) with `google_iam` authentication to Google Cloud Monitoring.
+    * `prom-rw-inmemm`: Same as `prom-rw` (server mode), but uses `--enable-feature=native-metadata` (PR #19563 + `native-metadata` flag) instead of `--enable-feature=type-and-unit-labels`.
+    * `prom-agent-rw`: Same as `prom-rw` (with `--enable-feature=type-and-unit-labels`), but running in `--agent` mode with the `meta-opt` image (PR #20126).
     * `prom-rw-m`: Same as `prom-rw`, but uses `--enable-feature=metadata-wal-records` instead of `--enable-feature=type-and-unit-labels`.
-    * `prom-rw-nost-unkn`: Same as `prom-rw`, but without created timestamps features (`--enable-feature=st-storage` and `--enable-feature=st-synthesis`), without metadata or type and unit labels (no `--enable-feature=metadata-wal-records` nor `--enable-feature=type-and-unit-labels`) and with metric traffic sent through a local `prwproxy` sidecar proxy (handling start timestamps and untyped metrics) forwarding to GCM staging.
-    * `prom-rw-m-nost-unkn`: Same as `prom-rw-nost-unkn`, but with `--enable-feature=metadata-wal-records`.
+    * `prom-rw-m-opt`: Same as `prom-rw-m` (`--enable-feature=metadata-wal-records`), but using the `meta-opt` image (PR #20126).
+    * `prom-rw-agent-m`: Same as `prom-rw-m-opt` (`--enable-feature=metadata-wal-records` with `meta-opt` image), but running in `--agent` mode.
+    * `prom-rw-agent-m-nohelp`: Same as `prom-rw-agent-m`, but clears `__help__` via `write_relabel_configs` (PR #20126 + PR #20101).
 
     Feel free to adjust anything in `./manifests/scenarios/` or add your own. You are also welcome to create custom scenarios under `scenarios/`, store them locally or propose to this repo.
     

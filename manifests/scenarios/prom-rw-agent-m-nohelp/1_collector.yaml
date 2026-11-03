@@ -128,14 +128,19 @@ data:
                 - role: pod
                   field: spec.nodeName=$(NODE_NAME)
     remote_write:
-    - name: "prwproxy"
-      url: "http://127.0.0.1:9092/api/v1/write"
+    - name: "google_cloud"
+      url: "https://staging-monitoring.sandbox.googleapis.com/v1/prometheus/api/v2/write"
       protobuf_message: "io.prometheus.write.v2.Request"
       send_native_histograms: true
       send_exemplars: true
+      write_relabel_configs:
+        - target_label: __help__
+          replacement: ""
+          action: replace
       queue_config:
         max_samples_per_send: 200
         retry_on_http_429: true
+      google_iam: {}
 ---
 apiVersion: apps/v1
 kind: DaemonSet
@@ -214,25 +219,24 @@ spec:
             - all
           privileged: false
       - name: prometheus
-        # Upstream Prometheus main, revision 5ee21818d8abd5677381d9d0e7bca27352e4f46b (2026-10-14), mirrored to gcr.io/gpe-test-1 so Quay GC doesn't break node upgrades.
-        image: gcr.io/gpe-test-1/prometheus:main-5ee21818d8@sha256:801d9e462993a48a02772694f957c34b9fdcdc87652c4a14e225078e69e63b5e
+        # Upstream Prometheus PR #20126 + PR #20101 (metadata relabeling via __type__, __unit__, __help__), revision d464a394a0 (2026-10-22).
+        image: gcr.io/gpe-test-1/prometheus:meta-relabel@sha256:e1fb383f83ec3ee5015e211c1d5661c99b31d1fbb206612fe125ef811ad4d73e
         imagePullPolicy: Always
         args:
+        - --agent
         - --config.file=/prometheus/config_out/config.yaml
         - --enable-feature=exemplar-storage
         - --enable-feature=native-histograms
+        - --enable-feature=st-storage
+        - --enable-feature=st-synthesis
+        - --enable-feature=metadata-wal-records
         - --enable-feature=xor2-encoding
-        - --storage.tsdb.path=/prometheus/data
-        - --storage.tsdb.no-lockfile
-        # Keep 30 minutes of data. As we are backed by an emptyDir volume, this will count towards
-        # the containers memory usage. We could lower it further if this becomes problematic, but
-        # it the window for local data is quite convenient for debugging.
-        - --storage.tsdb.retention.time=30m
-        - --storage.tsdb.wal-compression
-        # Effectively disable compaction and make blocks short enough so that our retention window
-        # can be kept in practice.
-        - --storage.tsdb.min-block-duration=10m
-        - --storage.tsdb.max-block-duration=10m
+        - --storage.agent.path=/prometheus/data
+        - --storage.agent.no-lockfile
+        - --storage.agent.retention.min-time=5m
+        - --storage.agent.retention.max-time=30m
+        - --storage.agent.wal-truncate-frequency=10m
+        - --storage.agent.wal-compression
         - --web.listen-address=:19090
         - --web.enable-lifecycle
         - --web.route-prefix=/
@@ -270,38 +274,6 @@ spec:
           httpGet:
             port: 19090
             path: /-/ready
-            scheme: HTTP
-        securityContext:
-          allowPrivilegeEscalation: false
-          capabilities:
-            drop:
-            - all
-          privileged: false
-      - name: prwproxy
-        image: gcr.io/gpe-test-1/prwproxy:pr-371
-        imagePullPolicy: Always
-        args:
-        - --web.listen-address=:9092
-        - --forward.url=https://staging-monitoring.sandbox.googleapis.com/v1/prometheus/api/v2/write
-        - --log.format=json
-        ports:
-        - name: proxy-ins
-          containerPort: 9092
-        resources:
-          limits:
-            memory: 1G
-          requests:
-            cpu: 4m
-            memory: 32M
-        livenessProbe:
-          httpGet:
-            port: 9092
-            path: /-/healthy
-            scheme: HTTP
-        readinessProbe:
-          httpGet:
-            port: 9092
-            path: /-/healthy
             scheme: HTTP
         securityContext:
           allowPrivilegeEscalation: false

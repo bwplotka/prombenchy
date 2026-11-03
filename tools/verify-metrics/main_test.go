@@ -196,34 +196,25 @@ func TestSummarizeAndPrintTable(t *testing.T) {
 }
 
 func TestDetectStagingFromScenario(t *testing.T) {
-	// Test against real scenario prom-rw which contains staging-monitoring
-	if !detectStagingFromScenario("../../manifests/scenarios/prom-rw") {
-		t.Errorf("expected manifests/scenarios/prom-rw to be detected as staging")
-	}
-
-	// Test against prom-rw-m which also contains staging-monitoring
-	if !detectStagingFromScenario("../../manifests/scenarios/prom-rw-m") {
-		t.Errorf("expected manifests/scenarios/prom-rw-m to be detected as staging")
-	}
-
-	// Test against prom-rw-nost-unkn which also contains staging-monitoring
-	if !detectStagingFromScenario("../../manifests/scenarios/prom-rw-nost-unkn") {
-		t.Errorf("expected manifests/scenarios/prom-rw-nost-unkn to be detected as staging")
-	}
-
-	// Test against prom-rw-m-nost-unkn which also contains staging-monitoring
-	if !detectStagingFromScenario("../../manifests/scenarios/prom-rw-m-nost-unkn") {
-		t.Errorf("expected manifests/scenarios/prom-rw-m-nost-unkn to be detected as staging")
-	}
-
-	// Test against gmp which does not contain staging-monitoring
-	if detectStagingFromScenario("../../manifests/scenarios/gmp") {
-		t.Errorf("expected manifests/scenarios/gmp NOT to be detected as staging")
-	}
-
-	// Test against gmp3 which does not contain staging-monitoring
-	if detectStagingFromScenario("../../manifests/scenarios/gmp3") {
-		t.Errorf("expected manifests/scenarios/gmp3 NOT to be detected as staging")
+	for _, tc := range []struct {
+		scenario    string
+		wantStaging bool
+	}{
+		{scenario: "prom-rw", wantStaging: true},
+		{scenario: "prom-rw-m", wantStaging: true},
+		{scenario: "prom-rw-inmemm", wantStaging: true},
+		{scenario: "prom-agent-rw", wantStaging: true},
+		{scenario: "prom-rw-m-opt", wantStaging: true},
+		{scenario: "prom-rw-agent-m", wantStaging: true},
+		{scenario: "prom-rw-agent-m-nohelp", wantStaging: true},
+		{scenario: "gmp", wantStaging: false},
+		{scenario: "gmp3", wantStaging: false},
+	} {
+		t.Run("scenario="+tc.scenario, func(t *testing.T) {
+			if got := detectStagingFromScenario("../../manifests/scenarios/" + tc.scenario); got != tc.wantStaging {
+				t.Errorf("detectStagingFromScenario(%q) = %v, want %v", tc.scenario, got, tc.wantStaging)
+			}
+		})
 	}
 }
 
