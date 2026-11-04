@@ -120,6 +120,15 @@ data:
         regex: .*-ins$
         action: keep
       - action: replace
+        source_labels: [__meta_kubernetes_pod_container_port_name]
+        regex: otap-ins
+        target_label: __metrics_path__
+        replacement: /api/v1/metrics
+      - action: replace
+        source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+        regex: (.+)
+        target_label: __metrics_path__
+      - action: replace
         source_labels: [__meta_kubernetes_pod_label_benchmark]
         target_label: benchmark
 

@@ -45,3 +45,19 @@ spec:
           name: metrics
       nodeSelector:
         role: {{ .Env.BENCH_NAME }}-work
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: avalanche
+  namespace: {{ .Env.BENCH_NAME }}
+  labels:
+    app: avalanche
+spec:
+  clusterIP: None
+  selector:
+    app: avalanche
+  ports:
+  - name: metrics
+    port: 9001
+    targetPort: metrics

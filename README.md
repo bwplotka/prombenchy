@@ -15,6 +15,11 @@ The general flow looks as follows:
 * Then to start any benchmark run you do `make start CLUSTER_NAME=my-prombenchy BENCH_NAME=<name of benchmark, also k8s namespace> SCENARIO=./manifests/scenarios/gmp`. This will setup node-pool and your collector (e.g. as daemon set or separate pod - up to you, as long as you do correct node section!)
 
     You can start as many scenarios as you want on the single cluster (make sure to use unique `BENCH_NAME` though!). The scenario is a path to the "collector" manifest, so anything that will scrape `./manifests/load/avalanche.exampletarget.yaml`. Feel free to adjust anything in `./manifests/scenarios/` or add your own. You are also welcome to create custom scenarios under `scenarios/`, store them locally or propose to this repo.
+
+    Available scenarios under `./manifests/scenarios/`:
+    * `./manifests/scenarios/gmp`: Google Cloud Managed Service for Prometheus collector (`prometheus-engine/prometheus`).
+    * `./manifests/scenarios/gmp-otel`: Go OpenTelemetry Collector (`otelcol-contrib`) with `prometheus` receiver and `googlemanagedprometheus` exporter.
+    * `./manifests/scenarios/otap-rust`: Rust OTAP Dataflow Engine (`df_engine`) with `urn:otel:receiver:prometheus` (`prometheus/expfmt-rs`) and `exporter:noop` for isolated scrape + Arrow decode benchmarking.
     
     `prombenchy` setup uses separate meta-monitoring containers in `core` namespace:
     * Separate Prometheus for gathering metrics about core resources and collectors (available locally, but also sends all to GCM). Make sure your pod has `app=collector` label and relevant port name has `-ins` suffix, to be scraped by this core Prometheus. There is also a dashboard you can apply to GCM in `./dashboards/`.

@@ -31,7 +31,7 @@ data:
             regex: collector
           - action: keep
             source_labels: [__meta_kubernetes_pod_container_name]
-            regex: prometheus|otel-collector
+            regex: prometheus|otel-collector|otap-collector
           - action: replace 
             source_labels: [__meta_kubernetes_pod_label_app]
             target_label: job

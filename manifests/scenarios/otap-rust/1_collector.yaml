@@ -1,0 +1,166 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: collector
+  namespace: {{ .Env.BENCH_NAME }}
+  annotations:
+    iam.gke.io/gcp-service-account: gmp-prombench@{{ .Env.PROJECT_ID }}.iam.gserviceaccount.com
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Env.BENCH_NAME }}:collector
+rules:
+- resources:
+  - endpoints
+  - nodes
+  - nodes/metrics
+  - pods
+  - services
+  apiGroups: [""]
+  verbs: ["get", "list", "watch"]
+- resources:
+  - configmaps
+  apiGroups: [""]
+  verbs: ["get"]
+- nonResourceURLs: ["/metrics"]
+  verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Env.BENCH_NAME }}:collector
+roleRef:
+  name: {{ .Env.BENCH_NAME }}:collector
+  kind: ClusterRole
+  apiGroup: rbac.authorization.k8s.io
+subjects:
+- name: collector
+  namespace: {{ .Env.BENCH_NAME }}
+  kind: ServiceAccount
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otap-collector-config
+  namespace: {{ .Env.BENCH_NAME }}
+data:
+  config.yaml: |
+    version: otel_dataflow/v1
+    engine: {}
+    groups:
+      default:
+        pipelines:
+          main:
+            policies:
+              channel_capacity:
+                control:
+                  node: 100
+                  pipeline: 100
+                pdata: 128
+            nodes:
+              receiver:
+                type: urn:otel:receiver:prometheus
+                config:
+                  job_name: avalanche
+                  scrape_interval: 15s
+                  scrape_timeout: 10s
+                  metrics_path: /metrics
+                  enable_open_metrics: true
+                  dns_sd_targets:
+                    - "avalanche.{{ .Env.BENCH_NAME }}.svc.cluster.local:9001"
+              exporter:
+                type: exporter:noop
+                config: {}
+            connections:
+              - from: receiver
+                to: exporter
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: collector
+  namespace: {{ .Env.BENCH_NAME }}
+  labels:
+    benchmark: {{ .Env.BENCH_NAME }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: collector
+  template:
+    metadata:
+      labels:
+        app: collector
+        app.kubernetes.io/name: collector
+        benchmark: {{ .Env.BENCH_NAME }}
+      annotations:
+        cluster-autoscaler.kubernetes.io/safe-to-evict: "true"
+        prometheus.io/path: /api/v1/metrics
+    spec:
+      serviceAccountName: collector
+      automountServiceAccountToken: true
+      containers:
+      - name: otap-collector
+        image: gcr.io/gpe-test-1/otap-df-engine:prometheus-receiver-v0.1.0
+        args:
+          - "--config=/conf/config.yaml"
+          - "--num-cores=2"
+          - "--http-admin-bind=0.0.0.0:8888"
+        env:
+        - name: MALLOC_CONF
+          value: "prof:true,prof_active:true,lg_prof_sample:19"
+        volumeMounts:
+        - name: otap-collector-config
+          mountPath: /conf
+          readOnly: true
+        ports:
+        - name: otap-ins # -ins, tells core Prometheus to scrape it.
+          containerPort: 8888
+        livenessProbe:
+          httpGet:
+            path: /api/v1/livez
+            port: 8888
+        readinessProbe:
+          httpGet:
+            path: /api/v1/readyz
+            port: 8888
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - all
+          privileged: false
+      volumes:
+      - name: otap-collector-config
+        configMap:
+          name: otap-collector-config
+          items:
+          - key: config.yaml
+            path: config.yaml
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: kubernetes.io/arch
+                operator: In
+                values:
+                - arm64
+                - amd64
+              - key: kubernetes.io/os
+                operator: In
+                values:
+                - linux
+      tolerations:
+      - effect: NoExecute
+        operator: Exists
+      - effect: NoSchedule
+        operator: Exists
+      securityContext:
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      nodeSelector:
+        role: {{ .Env.BENCH_NAME }}-work
