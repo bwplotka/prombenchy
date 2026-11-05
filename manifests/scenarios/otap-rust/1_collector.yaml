@@ -58,6 +58,10 @@ data:
                   node: 100
                   pipeline: 100
                 pdata: 128
+            extensions:
+              gcp_auth:
+                type: urn:otel:extension:gcp_auth
+                config: {}
             nodes:
               receiver:
                 type: urn:otel:receiver:prometheus
@@ -70,8 +74,12 @@ data:
                   dns_sd_targets:
                     - "avalanche.{{ .Env.BENCH_NAME }}.svc.cluster.local:9001"
               exporter:
-                type: exporter:noop
-                config: {}
+                type: urn:otel:exporter:otlp_grpc
+                capabilities:
+                  bearer_token_provider: gcp_auth
+                config:
+                  grpc_endpoint: "https://telemetry.googleapis.com:443"
+                  compression: gzip
             connections:
               - from: receiver
                 to: exporter
@@ -101,7 +109,7 @@ spec:
       automountServiceAccountToken: true
       containers:
       - name: otap-collector
-        image: gcr.io/gpe-test-1/otap-df-engine:prometheus-receiver-v0.1.0
+        image: gcr.io/gpe-test-1/otap-df-engine:prometheus-receiver-gcp-auth-v0.1.0
         args:
           - "--config=/conf/config.yaml"
           - "--num-cores=2"

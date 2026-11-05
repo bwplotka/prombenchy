@@ -19,7 +19,7 @@ The general flow looks as follows:
     Available scenarios under `./manifests/scenarios/`:
     * `./manifests/scenarios/gmp`: Google Cloud Managed Service for Prometheus collector (`prometheus-engine/prometheus`).
     * `./manifests/scenarios/gmp-otel`: Go OpenTelemetry Collector (`otelcol-contrib`) with `prometheus` receiver and `googlemanagedprometheus` exporter.
-    * `./manifests/scenarios/otap-rust`: Rust OTAP Dataflow Engine (`df_engine`) with `urn:otel:receiver:prometheus` (`prometheus/expfmt-rs`) and `exporter:noop` for isolated scrape + Arrow decode benchmarking.
+    * `./manifests/scenarios/otap-rust`: Rust OTAP Dataflow Engine (`df_engine`) with `urn:otel:receiver:prometheus` (`prometheus/scrape.rs`), `urn:otel:extension:gcp_auth`, and `urn:otel:exporter:otlp_grpc` exporting to Google Cloud Telemetry (`https://telemetry.googleapis.com:443`).
     
     `prombenchy` setup uses separate meta-monitoring containers in `core` namespace:
     * Separate Prometheus for gathering metrics about core resources and collectors (available locally, but also sends all to GCM). Make sure your pod has `app=collector` label and relevant port name has `-ins` suffix, to be scraped by this core Prometheus. There is also a dashboard you can apply to GCM in `./dashboards/`.
