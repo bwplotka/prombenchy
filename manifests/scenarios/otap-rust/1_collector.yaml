@@ -53,11 +53,15 @@ data:
         pipelines:
           main:
             policies:
+              resources:
+                core_allocation:
+                  type: core_count
+                  count: 1
               channel_capacity:
                 control:
                   node: 100
                   pipeline: 100
-                pdata: 128
+                pdata: 256
             extensions:
               gcp_auth:
                 type: urn:otel:extension:gcp_auth
@@ -71,8 +75,26 @@ data:
                   scrape_timeout: 10s
                   metrics_path: /metrics
                   enable_open_metrics: true
+                  max_data_points_per_batch: 200
                   dns_sd_targets:
                     - "avalanche.{{ .Env.BENCH_NAME }}.svc.cluster.local:9001"
+              resource_attrs:
+                type: urn:otel:processor:attribute
+                config:
+                  apply_to: ["resource"]
+                  actions:
+                    - action: upsert
+                      key: "gcp.project_id"
+                      value: "{{ .Env.PROJECT_ID }}"
+                    - action: upsert
+                      key: "cloud.availability_zone"
+                      value: "{{ .Env.ZONE }}"
+                    - action: upsert
+                      key: "k8s.cluster.name"
+                      value: "{{ .Env.CLUSTER_NAME }}"
+                    - action: upsert
+                      key: "k8s.namespace.name"
+                      value: "{{ .Env.BENCH_NAME }}"
               exporter:
                 type: urn:otel:exporter:otlp_grpc
                 capabilities:
@@ -82,6 +104,8 @@ data:
                   compression: gzip
             connections:
               - from: receiver
+                to: resource_attrs
+              - from: resource_attrs
                 to: exporter
 ---
 apiVersion: apps/v1
@@ -109,10 +133,10 @@ spec:
       automountServiceAccountToken: true
       containers:
       - name: otap-collector
-        image: gcr.io/gpe-test-1/otap-df-engine:prometheus-receiver-gcp-auth-v0.1.0
+        image: gcr.io/gpe-test-1/otap-df-engine:prometheus-receiver-gcp-auth-v0.2.0
         args:
           - "--config=/conf/config.yaml"
-          - "--num-cores=2"
+          - "--num-cores=1"
           - "--http-admin-bind=0.0.0.0:8888"
         env:
         - name: MALLOC_CONF
