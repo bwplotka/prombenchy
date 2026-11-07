@@ -87,14 +87,113 @@ data:
                       key: "gcp.project_id"
                       value: "{{ .Env.PROJECT_ID }}"
                     - action: upsert
+                      key: "cloud.account.id"
+                      value: "{{ .Env.PROJECT_ID }}"
+                    - action: upsert
                       key: "cloud.availability_zone"
                       value: "{{ .Env.ZONE }}"
+                    - action: upsert
+                      key: "cloud.platform"
+                      value: "gcp_kubernetes_engine"
+                    - action: upsert
+                      key: "cloud.provider"
+                      value: "gcp"
+                    - action: upsert
+                      key: "cloud.region"
+                      value: "us-central1"
+                    - action: upsert
+                      key: "host.id"
+                      value: "6738547723285439597"
+                    - action: upsert
+                      key: "host.name"
+                      value: "gke-{{ .Env.CLUSTER_NAME }}-{{ .Env.BENCH_NAME }}-work-pool-96afa708-zj6n"
+                    - action: upsert
+                      key: "host.type"
+                      value: "n2-highmem-8"
                     - action: upsert
                       key: "k8s.cluster.name"
                       value: "{{ .Env.CLUSTER_NAME }}"
                     - action: upsert
                       key: "k8s.namespace.name"
                       value: "{{ .Env.BENCH_NAME }}"
+                    - action: upsert
+                      key: "k8s.node.name"
+                      value: "gke-{{ .Env.CLUSTER_NAME }}-{{ .Env.BENCH_NAME }}-work-pool-96afa708-zj6n"
+                    - action: upsert
+                      key: "k8s.pod.name"
+                      value: "avalanche-5f78867584-42kpp"
+                    - action: upsert
+                      key: "k8s.pod.uid"
+                      value: "3b2d4a0b-adcb-4d66-8989-b53e5831f11d"
+                    - action: upsert
+                      key: "k8s.pod.start_time"
+                      value: "2026-11-04T17:20:00Z"
+                    - action: upsert
+                      key: "k8s.container.name"
+                      value: "avalanche"
+                    - action: upsert
+                      key: "k8s.replicaset.name"
+                      value: "avalanche-5f78867584"
+                    - action: upsert
+                      key: "k8s.deployment.name"
+                      value: "avalanche"
+                    - action: upsert
+                      key: "server.address"
+                      value: "avalanche-5f78867584-42kpp"
+                    - action: upsert
+                      key: "server.port"
+                      value: "metrics"
+                    - action: upsert
+                      key: "url.scheme"
+                      value: "http"
+              datapoint_attrs:
+                type: urn:otel:processor:attribute
+                config:
+                  apply_to: ["signal"]
+                  actions:
+                    - action: upsert
+                      key: "pod"
+                      value: "avalanche-5f78867584-42kpp"
+                    - action: upsert
+                      key: "container"
+                      value: "avalanche"
+                    - action: upsert
+                      key: "top_level_controller_name"
+                      value: "avalanche"
+                    - action: upsert
+                      key: "top_level_controller_type"
+                      value: "Deployment"
+                    - action: upsert
+                      key: "otel_scope_name"
+                      value: "github.com/open-telemetry/opentelemetry-collector-contrib/receiver/prometheusreceiver"
+                    - action: upsert
+                      key: "otel_scope_version"
+                      value: "0.163.1"
+                    - action: upsert
+                      key: "exported_project_id"
+                      value: "{{ .Env.PROJECT_ID }}"
+                    - action: upsert
+                      key: "exported_location"
+                      value: "{{ .Env.ZONE }}"
+                    - action: upsert
+                      key: "exported_cluster"
+                      value: "{{ .Env.CLUSTER_NAME }}"
+                    - action: upsert
+                      key: "exported_namespace"
+                      value: "{{ .Env.BENCH_NAME }}"
+                    - action: upsert
+                      key: "exported_job"
+                      value: "avalanche"
+                    - action: upsert
+                      key: "exported_instance"
+                      value: "avalanche-5f78867584-42kpp:metrics"
+              retry:
+                type: urn:otel:processor:retry
+                config:
+                  initial_interval: 5s
+                  max_interval: 30s
+                  max_elapsed_time: 300s
+                  multiplier: 1.5
               exporter:
                 type: urn:otel:exporter:otlp_grpc
                 capabilities:
@@ -106,6 +205,10 @@ data:
               - from: receiver
                 to: resource_attrs
               - from: resource_attrs
+                to: datapoint_attrs
+              - from: datapoint_attrs
+                to: retry
+              - from: retry
                 to: exporter
 ---
 apiVersion: apps/v1
