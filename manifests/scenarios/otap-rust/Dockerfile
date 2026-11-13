@@ -1,6 +1,6 @@
-# Build from the open-telemetry/otel-arrow repository root (branch bwplotka/prometheus-receiver-gcp-auth):
+# Build from the open-telemetry/otel-arrow repository root (branch bwplotka/otap-bench-v4):
 #   docker build -f manifests/scenarios/otap-rust/Dockerfile \
-#     -t gcr.io/gpe-test-1/otap-df-engine:prometheus-receiver-gcp-auth-v0.2.0 /path/to/otel-arrow
+#     -t gcr.io/gpe-test-1/otap-df-engine:prometheus-receiver-gcp-auth-v0.3.0 /path/to/otel-arrow
 FROM rust:1.99-bookworm AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends protobuf-compiler && rm -rf /var/lib/apt/lists/*
