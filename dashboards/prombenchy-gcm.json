@@ -79,7 +79,7 @@
                 "plotType": "LINE",
                 "targetAxis": "Y1",
                 "timeSeriesQuery": {
-                  "prometheusQuery": "sum by (__name__, pod, namespace) (container_memory_working_set_bytes{cluster=\"bwplotka-prombenchy\", container=~\"otel-collector|prometheus\", pod=~\"collector-.*\"})",
+                  "prometheusQuery": "sum by (__name__, pod, namespace) (container_memory_working_set_bytes{cluster=\"bwplotka-prombenchy\", container=~\"otel-collector|prometheus|otap-collector|vmagent\", pod=~\"collector-.*\"})",
                   "unitOverride": "By"
                 }
               }
@@ -273,7 +273,7 @@
             "dataSets": [
               {
                 "timeSeriesQuery": {
-                  "prometheusQuery": "sum by (namespace, container) (container_memory_mapped_file{cluster=\"bwplotka-prombenchy\", container=~\"otel-collector|prometheus\", pod=~\"collector.*\"})",
+                  "prometheusQuery": "sum by (namespace, container) (container_memory_mapped_file{cluster=\"bwplotka-prombenchy\", container=~\"otel-collector|prometheus|otap-collector|vmagent\", pod=~\"collector.*\"})",
                   "unitOverride": "By",
                   "outputFullDuration": false
                 },
@@ -347,7 +347,7 @@
             "dataSets": [
               {
                 "timeSeriesQuery": {
-                  "prometheusQuery": "max by (namespace) (max_over_time(container_memory_working_set_bytes{cluster=\"bwplotka-prombenchy\", container=~\"otel-collector|prometheus\", pod=~\"collector-.*\"}[10h]))",
+                  "prometheusQuery": "max by (namespace) (max_over_time(container_memory_working_set_bytes{cluster=\"bwplotka-prombenchy\", container=~\"otel-collector|prometheus|otap-collector|vmagent\", pod=~\"collector-.*\"}[10h]))",
                   "unitOverride": "By",
                   "outputFullDuration": false
                 },
@@ -384,7 +384,7 @@
             "dataSets": [
               {
                 "timeSeriesQuery": {
-                  "prometheusQuery": "max by (namespace) (rate(container_cpu_usage_seconds_total{cluster=\"bwplotka-prombenchy\", container=~\"otel-collector|prometheus\", pod=~\"collector-.*\"}[10h]))\n",
+                  "prometheusQuery": "max by (namespace) (rate(container_cpu_usage_seconds_total{cluster=\"bwplotka-prombenchy\", container=~\"otel-collector|prometheus|otap-collector|vmagent\", pod=~\"collector-.*\"}[10h]))\n",
                   "unitOverride": "",
                   "outputFullDuration": false
                 },
@@ -421,7 +421,7 @@
             "dataSets": [
               {
                 "timeSeriesQuery": {
-                  "prometheusQuery": "max by (namespace) (avg_over_time(container_memory_working_set_bytes{cluster=\"bwplotka-prombenchy\", container=~\"otel-collector|prometheus\", pod=~\"collector-.*\"}[10h]))",
+                  "prometheusQuery": "max by (namespace) (avg_over_time(container_memory_working_set_bytes{cluster=\"bwplotka-prombenchy\", container=~\"otel-collector|prometheus|otap-collector|vmagent\", pod=~\"collector-.*\"}[10h]))",
                   "unitOverride": "By",
                   "outputFullDuration": false
                 },
