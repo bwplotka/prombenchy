@@ -20,6 +20,7 @@ The general flow looks as follows:
     * `./manifests/scenarios/gmp`: Google Cloud Managed Service for Prometheus collector (`prometheus-engine/prometheus`).
     * `./manifests/scenarios/gmp-otel`: Go OpenTelemetry Collector (`otelcol-contrib`) with `prometheus` receiver and `googlemanagedprometheus` exporter.
     * `./manifests/scenarios/otap-rust`: Rust OTAP Dataflow Engine (`df_engine`) with `urn:otel:receiver:prometheus` (`prometheus/scrape.rs`), `urn:otel:extension:gcp_auth`, and `urn:otel:exporter:otlp_grpc` exporting to Google Cloud Telemetry (`https://telemetry.googleapis.com:443`).
+    * `./manifests/scenarios/vmagent-fakeout`: VictoriaMetrics `vmagent` scraping targets with Kubernetes SD and relabeling, queuing to disk, and sending Snappy-compressed Prometheus Remote Write 1.0 (`-remoteWrite.forcePromProto=true`, `-remoteWrite.maxRowsPerBlock=200`) to `https://telemetry.googleapis.com/v1/metrics` (which rejects Snappy RW1 with `415 Unsupported Media Type`, exercising the full scrape, relabel, queue, compression, and HTTPS transmit pipeline without stalling the queue).
     
     `prombenchy` setup uses separate meta-monitoring containers in `core` namespace:
     * Separate Prometheus for gathering metrics about core resources and collectors (available locally, but also sends all to GCM). Make sure your pod has `app=collector` label and relevant port name has `-ins` suffix, to be scraped by this core Prometheus. There is also a dashboard you can apply to GCM in `./dashboards/`.
