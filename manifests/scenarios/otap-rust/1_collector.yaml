@@ -211,7 +211,7 @@ spec:
       automountServiceAccountToken: true
       containers:
       - name: otap-collector
-        image: gcr.io/gpe-test-1/otap-df-engine:prometheus-receiver-gcp-auth-v0.3.0@sha256:3c0728aa0a43294a9a256d012e0758f2192d6e3acbc37bc63fc520be2a0379db
+        image: gcr.io/gpe-test-1/otap-df-engine:prometheus-receiver-gcp-auth-v0.4.0@sha256:eeaf51ee83268d0ff65a5c107db96b6a6f09d5b0535cbae900cc2aa487d5c57a
         args:
           - "--config=/conf/config.yaml"
           - "--num-cores=1"
